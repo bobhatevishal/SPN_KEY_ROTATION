@@ -2,7 +2,6 @@
 set -e
 
 # Load credentials and variables
-# Using '.' instead of 'source' for better compatibility with different shells
 [ -f db_env.sh ] && . ./db_env.sh
 
 # Sanitize names for Key Vault (dashes instead of spaces)
@@ -15,29 +14,29 @@ echo "Key Vault: $KEYVAULT_NAME"
 echo "Target Secret: $SECRET_NAME"
 echo "-------------------------------------------------------"
 
-# 1. Update the Application ID (and ensure it is enabled)
+# 1. Update the Application ID
+# Using --attributes "enabled=true" instead of --enabled true
 az keyvault secret set \
     --vault-name "$KEYVAULT_NAME" \
     --name "$ID_NAME" \
     --value "$TARGET_APPLICATION_ID" \
-    --enabled true \
+    --attributes "enabled=true" \
     --only-show-errors --output none
 
 # 2. Push the NEW OAuth Secret
-# We capture the unique Version ID of the secret we just pushed
-# so we can exclude it from being disabled.
+# We capture the unique Version ID to ensure we don't disable it later
 NEW_VERSION_ID=$(az keyvault secret set \
     --vault-name "$KEYVAULT_NAME" \
     --name "$SECRET_NAME" \
     --value "$FINAL_OAUTH_SECRET" \
-    --enabled true \
+    --attributes "enabled=true" \
     --query "id" -o tsv \
     --only-show-errors)
 
 echo "Success: Stored new version -> $NEW_VERSION_ID"
 
 # 3. Identify all PREVIOUS versions that are still ENABLED
-# We filter for versions where enabled == true AND the id is NOT our new one
+# Note: We use backticks to escape 'true' in the JMESPath query
 OLD_VERSIONS=$(az keyvault secret list-versions \
     --vault-name "$KEYVAULT_NAME" \
     --name "$SECRET_NAME" \
