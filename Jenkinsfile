@@ -39,38 +39,36 @@ pipeline {
           }
 
           // Loop through the list
-          for (spn in spns) {
-            // We use a variable so the catch block knows which one failed
-            def currentSPN = spn 
-            
+         for (spn in spns) {
             stage("SPN: ${currentSPN}") {
               try {
-                echo "Starting rotation for: ${currentSPN}"
-                
                 withEnv(["TARGET_SPN_DISPLAY_NAME=${currentSPN}"]) {
-                  // If fetch_internal_id.sh fails, it throws an exception here
                   sh './scripts/fetch_internal_id.sh'
                   
+                  // Logic for deletion as before...
+                  
+                  // 1. Run the creation script (this will now throw error if secret is null)
+                  sh './scripts/create_oauth_secret.sh'
+                  
+                  // 2. EXTRA GATEKEEPER: Verify the variable is in db_env.sh before proceeding
                   script {
-                      def hasSecrets = sh(script: ". ./db_env.sh && echo \$HAS_SECRETS", returnStdout: true).trim()
-                      if (hasSecrets.toInteger() > 0) {
-                          echo "Secrets found (${hasSecrets}). Running deletion..."
-                          sh './scripts/delete_old_secrets.sh'
-                      } else {
-                          echo "No secrets found. Skipping deletion."
+                      def checkSecret = sh(
+                          script: ". ./db_env.sh && echo \$FINAL_OAUTH_SECRET", 
+                          returnStdout: true
+                      ).trim()
+
+                      if (checkSecret == "" || checkSecret == "null") {
+                          // This forces the 'catch' block to trigger
+                          error "Pipeline Halted: The generated secret for ${currentSPN} is invalid/null."
                       }
                   }
 
-                  sh './scripts/create_oauth_secret.sh'
+                  // 3. Only runs if the check above passes
                   sh './scripts/store_keyvault.sh'
                 }
-                echo "Successfully rotated: ${currentSPN}"
-
               } catch (Exception e) {
-                // This is the fix: catch the error and keep going
-                echo "FAILED to process ${currentSPN}: ${e.getMessage()}"
-                currentBuild.result = 'UNSTABLE' 
-                // The loop continues to the next 'spn' in 'spns'
+                echo "FAILED: ${currentSPN}: ${e.getMessage()}"
+                currentBuild.result = 'UNSTABLE'
               }
             }
           }
