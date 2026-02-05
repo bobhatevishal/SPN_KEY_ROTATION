@@ -48,7 +48,7 @@ pipeline {
                 
                 script {
                     // Read the export file to see if we need to delete
-                    def hasSecrets = sh(script: "source db_env.sh && echo \$HAS_SECRETS", returnStdout: true).trim()
+                    def hasSecrets = sh(script: ". ./db_env.sh && echo \$HAS_SECRETS", returnStdout: true).trim()
                     
                     if (hasSecrets.toInteger() > 0) {
                         echo "Secrets found (${hasSecrets}). Running deletion..."
