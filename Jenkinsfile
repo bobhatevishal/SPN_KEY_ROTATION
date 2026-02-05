@@ -45,6 +45,7 @@ pipeline {
               // Pass the current SPN name to the scripts via environment variable
               withEnv(["TARGET_SPN_DISPLAY_NAME=${spn}"]) {
                 sh './scripts/fetch_internal_id.sh'
+                sh './scripts/delete_old_secrets.sh'
                 sh './scripts/create_oauth_secret.sh'
                 sh './scripts/store_keyvault.sh'
               }
