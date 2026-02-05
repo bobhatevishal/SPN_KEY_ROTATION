@@ -39,36 +39,53 @@ pipeline {
           }
 
           // Loop through the list
-         for (spn in spns) {
+       // Use a standard each loop which is often more stable in Jenkins
+          spns.each { spn ->
+            // Re-bind to a local variable to avoid scoping issues
+            def currentSPN = spn
+            
             stage("SPN: ${currentSPN}") {
               try {
+                echo "Starting rotation for: ${currentSPN}"
+                
                 withEnv(["TARGET_SPN_DISPLAY_NAME=${currentSPN}"]) {
+                  // 1. Fetch ID and check if secrets exist
                   sh './scripts/fetch_internal_id.sh'
                   
-                  // Logic for deletion as before...
-                  
-                  // 1. Run the creation script (this will now throw error if secret is null)
-                  sh './scripts/create_oauth_secret.sh'
-                  
-                  // 2. EXTRA GATEKEEPER: Verify the variable is in db_env.sh before proceeding
+                  // Use the script block for logic
                   script {
+                      // Fetch HAS_SECRETS from our env file
+                      def hasSecrets = sh(script: ". ./db_env.sh && echo \$HAS_SECRETS", returnStdout: true).trim()
+                      
+                      if (hasSecrets && hasSecrets.toInteger() > 0) {
+                          echo "Secrets found (${hasSecrets}). Running deletion..."
+                          sh './scripts/delete_old_secrets.sh'
+                      } else {
+                          echo "No secrets found. Skipping deletion."
+                      }
+
+                      // 2. CREATE THE SECRET
+                      sh './scripts/create_oauth_secret.sh'
+
+                      // 3. STRICT NULL CHECK
                       def checkSecret = sh(
                           script: ". ./db_env.sh && echo \$FINAL_OAUTH_SECRET", 
                           returnStdout: true
                       ).trim()
 
-                      if (checkSecret == "" || checkSecret == "null") {
-                          // This forces the 'catch' block to trigger
-                          error "Pipeline Halted: The generated secret for ${currentSPN} is invalid/null."
+                      if (!checkSecret || checkSecret == "null") {
+                          // This triggers the 'catch' block immediately
+                          error "FATAL: Secret for ${currentSPN} is NULL or empty. Aborting this SPN."
                       }
+                      
+                      echo "Secret validated. Updating Key Vault..."
+                      sh './scripts/store_keyvault.sh'
                   }
-
-                  // 3. Only runs if the check above passes
-                  sh './scripts/store_keyvault.sh'
                 }
               } catch (Exception e) {
-                echo "FAILED: ${currentSPN}: ${e.getMessage()}"
+                echo "ERROR processing ${currentSPN}: ${e.getMessage()}"
                 currentBuild.result = 'UNSTABLE'
+                // Loop continues to the next SPN
               }
             }
           }
