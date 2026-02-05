@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-source db_env.sh
+[ -f db_env.sh ] && . db_env.sh
 
 # 1. Fetch SPN Data
 RESPONSE=$(curl -s -G -X GET \
