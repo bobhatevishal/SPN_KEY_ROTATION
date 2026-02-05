@@ -1,62 +1,59 @@
 #!/bin/bash
 set -e
 
-# Load credentials and variables
+# Load environment variables
 [ -f db_env.sh ] && . ./db_env.sh
 
-# Sanitize names for Key Vault (dashes instead of spaces)
+# Sanitize Name (Replace spaces with dashes)
 CLEAN_NAME=$(echo "$TARGET_SPN_DISPLAY_NAME" | tr ' ' '-')
-SECRET_NAME="db-$CLEAN_NAME-secret"
 ID_NAME="db-$CLEAN_NAME-id"
+SECRET_NAME="db-$CLEAN_NAME-secret"
 
 echo "-------------------------------------------------------"
-echo "Key Vault: $KEYVAULT_NAME"
+echo "Updating Key Vault: $KEYVAULT_NAME"
 echo "Target Secret: $SECRET_NAME"
 echo "-------------------------------------------------------"
 
-# 1. Update the Application ID
-# Using --attributes "enabled=true" instead of --enabled true
+# 1. Update the Application ID (Usually remains constant, but updated for consistency)
 az keyvault secret set \
     --vault-name "$KEYVAULT_NAME" \
     --name "$ID_NAME" \
     --value "$TARGET_APPLICATION_ID" \
-    --attributes "enabled=true" \
     --only-show-errors --output none
 
-# 2. Push the NEW OAuth Secret
-# We capture the unique Version ID to ensure we don't disable it later
+# 2. Store the NEW OAuth Secret
+# We capture the URI/ID of the version we just created to keep it enabled
 NEW_VERSION_ID=$(az keyvault secret set \
     --vault-name "$KEYVAULT_NAME" \
     --name "$SECRET_NAME" \
     --value "$FINAL_OAUTH_SECRET" \
-    --attributes "enabled=true" \
     --query "id" -o tsv \
     --only-show-errors)
 
-echo "Success: Stored new version -> $NEW_VERSION_ID"
+echo "New version created: $NEW_VERSION_ID"
 
 # 3. Identify all PREVIOUS versions that are still ENABLED
-# Note: We use backticks to escape 'true' in the JMESPath query
+# We look for all versions where enabled == true AND the ID is NOT our new one
 OLD_VERSIONS=$(az keyvault secret list-versions \
     --vault-name "$KEYVAULT_NAME" \
     --name "$SECRET_NAME" \
     --query "[?attributes.enabled==\`true\` && id!='$NEW_VERSION_ID'].id" \
     -o tsv)
 
-# 4. Disable the old versions
+# 4. Disable the Old Versions
 if [ -z "$OLD_VERSIONS" ]; then
-    echo "No old enabled versions found to disable."
+    echo "No old enabled versions found."
 else
     echo "Disabling older versions..."
     for version_id in $OLD_VERSIONS; do
-        echo "Processing: $version_id"
-        # Explicitly turn off the enabled flag
+        echo "Deactivating: $version_id"
         az keyvault secret set-attributes \
             --id "$version_id" \
             --enabled false \
             --only-show-errors --output none
     done
-    echo "Cleanup complete."
+    echo "Old versions disabled successfully."
 fi
 
 echo "-------------------------------------------------------"
+echo "Rotation Complete: Only the latest secret is active."
