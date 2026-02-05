@@ -42,10 +42,23 @@ pipeline {
             stage("SPN: ${spn}") {
               echo "Starting rotation for: ${spn}"
               
-              // Pass the current SPN name to the scripts via environment variable
               withEnv(["TARGET_SPN_DISPLAY_NAME=${spn}"]) {
+                // 1. Fetch ID and check if secrets exist
                 sh './scripts/fetch_internal_id.sh'
-                sh './scripts/delete_old_secrets.sh'
+                
+                script {
+                    // Read the export file to see if we need to delete
+                    def hasSecrets = sh(script: "source db_env.sh && echo \$HAS_SECRETS", returnStdout: true).trim()
+                    
+                    if (hasSecrets.toInteger() > 0) {
+                        echo "Secrets found (${hasSecrets}). Running deletion..."
+                        sh './scripts/delete_old_secrets.sh'
+                    } else {
+                        echo "No secrets found. Skipping deletion."
+                    }
+                }
+
+                // 2. Always create the new secret
                 sh './scripts/create_oauth_secret.sh'
                 sh './scripts/store_keyvault.sh'
               }
