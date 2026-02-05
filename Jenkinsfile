@@ -38,29 +38,39 @@ pipeline {
             spns = params.SPN_LIST.split(',').collect { it.trim() }
           }
 
+          // Loop through the list
           for (spn in spns) {
-            stage("SPN: ${spn}") {
-              echo "Starting rotation for: ${spn}"
-              
-              withEnv(["TARGET_SPN_DISPLAY_NAME=${spn}"]) {
-                // 1. Fetch ID and check if secrets exist
-                sh './scripts/fetch_internal_id.sh'
+            // We use a variable so the catch block knows which one failed
+            def currentSPN = spn 
+            
+            stage("SPN: ${currentSPN}") {
+              try {
+                echo "Starting rotation for: ${currentSPN}"
                 
-                script {
-                    // Read the export file to see if we need to delete
-                    def hasSecrets = sh(script: ". ./db_env.sh && echo \$HAS_SECRETS", returnStdout: true).trim()
-                    
-                    if (hasSecrets.toInteger() > 0) {
-                        echo "Secrets found (${hasSecrets}). Running deletion..."
-                        sh './scripts/delete_old_secrets.sh'
-                    } else {
-                        echo "No secrets found. Skipping deletion."
-                    }
-                }
+                withEnv(["TARGET_SPN_DISPLAY_NAME=${currentSPN}"]) {
+                  // If fetch_internal_id.sh fails, it throws an exception here
+                  sh './scripts/fetch_internal_id.sh'
+                  
+                  script {
+                      def hasSecrets = sh(script: ". ./db_env.sh && echo \$HAS_SECRETS", returnStdout: true).trim()
+                      if (hasSecrets.toInteger() > 0) {
+                          echo "Secrets found (${hasSecrets}). Running deletion..."
+                          sh './scripts/delete_old_secrets.sh'
+                      } else {
+                          echo "No secrets found. Skipping deletion."
+                      }
+                  }
 
-                // 2. Always create the new secret
-                sh './scripts/create_oauth_secret.sh'
-                sh './scripts/store_keyvault.sh'
+                  sh './scripts/create_oauth_secret.sh'
+                  sh './scripts/store_keyvault.sh'
+                }
+                echo "Successfully rotated: ${currentSPN}"
+
+              } catch (Exception e) {
+                // This is the fix: catch the error and keep going
+                echo "FAILED to process ${currentSPN}: ${e.getMessage()}"
+                currentBuild.result = 'UNSTABLE' 
+                // The loop continues to the next 'spn' in 'spns'
               }
             }
           }
