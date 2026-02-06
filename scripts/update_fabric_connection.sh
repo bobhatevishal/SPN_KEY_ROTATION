@@ -1,55 +1,36 @@
 #!/bin/bash
 set -e
 
-# 1. Load environment state
-if [ -f db_env.sh ]; then
-    . ./db_env.sh
-else
-    echo "ERROR: db_env.sh not found."
-    exit 1
-fi
+# 1. Load environment (contains FINAL_OAUTH_SECRET and TARGET_APPLICATION_ID)
+[ -f db_env.sh ] && . ./db_env.sh
 
-# 2. Clean variables (Critical)
+# 2. Force-clean variables (Removes hidden spaces/newlines that cause 400 errors)
 FINAL_OAUTH_SECRET=$(echo "$FINAL_OAUTH_SECRET" | tr -d '\r\n ')
 TARGET_APPLICATION_ID=$(echo "$TARGET_APPLICATION_ID" | tr -d '\r\n ')
 
 echo "-------------------------------------------------------"
-echo "Fabric Integration: Syncing Databricks Credentials"
+echo "Fabric Integration: Syncing Credentials for ID 1c2e7a3a"
 echo "-------------------------------------------------------"
 
-# 3. Authenticate Fabric API
-FABRIC_TOKEN=$(az account get-access-token \
-    --resource https://api.fabric.microsoft.com \
-    --query accessToken -o tsv)
+# 3. Get Fabric Token
+FABRIC_TOKEN=$(az account get-access-token --resource https://api.fabric.microsoft.com --query accessToken -o tsv)
 
-# 4. Identify Connection
-CLEAN_NAME=$(echo "$TARGET_SPN_DISPLAY_NAME" | tr ' ' '-')
-FABRIC_CONN_NAME="db-$CLEAN_NAME"
+# 4. Fetch the existing connection metadata
+# We MUST send the existing 'connectionDetails' back to the API during the PATCH
+CONN_PATH="https://api.fabric.microsoft.com/v1/connections/1c2e7a3a-1434-4311-b39a-a392fc192be5"
+ALL_METADATA=$(curl -s -X GET -H "Authorization: Bearer $FABRIC_TOKEN" "$CONN_PATH")
 
-# 5. Fetch current connection metadata to get the 'connectionDetails'
-# This is required because Fabric often rejects patches that lack the original host path.
-ALL_CONNS=$(curl -s -X GET \
-  -H "Authorization: Bearer $FABRIC_TOKEN" \
-  "https://api.fabric.microsoft.com/v1/connections")
+# Extract the connectionDetails block (Host/Path)
+CONNECTION_DETAILS=$(echo "$ALL_METADATA" | jq -c '.connectionDetails')
 
-# Extract Connection ID and current Connection Details (the host/path info)
-CONNECTION_ID=$(echo "$ALL_CONNS" | jq -r ".value[] | select(.displayName==\"$FABRIC_CONN_NAME\") | .id // empty")
-CONN_METADATA=$(echo "$ALL_CONNS" | jq -c ".value[] | select(.displayName==\"$FABRIC_CONN_NAME\") | .connectionDetails")
+echo "Updating Connection with Data Source Path: $CONNECTION_DETAILS"
 
-if [ -z "$CONNECTION_ID" ]; then
-    echo "INFO: Fabric connection '$FABRIC_CONN_NAME' not found. Skipping."
-    exit 0
-fi
-
-echo "Connection Found. ID: $CONNECTION_ID"
-
-# 6. Push the update
-# We include 'connectionDetails' and 'format' to satisfy the 'InvalidInput' error.
+# 5. Execute the PATCH with the COMPLETE valid input structure
 PATCH_RESPONSE=$(curl -s -w "\n%{http_code}" -X PATCH \
   -H "Authorization: Bearer $FABRIC_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{
-    \"connectionDetails\": $CONN_METADATA,
+    \"connectionDetails\": $CONNECTION_DETAILS,
     \"credentialDetails\": {
       \"credentialType\": \"OAuth2\",
       \"format\": \"DatabricksClientCredentials\",
@@ -62,15 +43,16 @@ PATCH_RESPONSE=$(curl -s -w "\n%{http_code}" -X PATCH \
       \"skipTestConnection\": true
     }
   }" \
-  "https://api.fabric.microsoft.com/v1/connections/$CONNECTION_ID")
+  "$CONN_PATH")
 
+# 6. Parse Results
 PATCH_CODE=$(echo "$PATCH_RESPONSE" | tail -n1)
 PATCH_BODY=$(echo "$PATCH_RESPONSE" | sed '$d')
 
 if [ "$PATCH_CODE" -eq 200 ] || [ "$PATCH_CODE" -eq 204 ]; then
-    echo "SUCCESS: Connection updated with new Key Vault secret."
+    echo "SUCCESS: Fabric Connection 1c2e7a3a updated."
 else
-    echo "FAILURE: Fabric API returned $PATCH_CODE"
-    echo "Error Detail: $PATCH_BODY"
+    echo "FAILURE: Status $PATCH_CODE"
+    echo "API Response: $PATCH_BODY"
     exit 1
 fi
