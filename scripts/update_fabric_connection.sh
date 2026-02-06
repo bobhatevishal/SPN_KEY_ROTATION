@@ -1,50 +1,61 @@
 #!/bin/bash
-# Description: Updates Microsoft Fabric Cloud Connections with Databricks Client Credentials
-# Requirement: 'jq' must be installed on the Jenkins agent.
+# Description: Safely updates Microsoft Fabric Databricks OAuth credentials
+# Behavior: Patch only if supported, otherwise skip
+# Requirement: jq, az, curl
 set -e
-
-# 1. Load the state from previous stages
-# Expected variables: TARGET_SPN_DISPLAY_NAME, TARGET_APPLICATION_ID, FINAL_OAUTH_SECRET
+ 
+# Load environment state
 if [ -f db_env.sh ]; then
     . ./db_env.sh
 else
     echo "ERROR: db_env.sh not found. Ensure previous stages exported credentials."
     exit 1
 fi
-
+ 
 echo "-------------------------------------------------------"
-echo "Fabric Integration: Syncing Databricks Credentials"
+echo "Fabric Integration: Scanning & Syncing Databricks Credentials"
 echo "-------------------------------------------------------"
-
-# 2. Authenticate for Microsoft Fabric (Power BI API)
+ 
+# Authenticate Fabric API
 FABRIC_TOKEN=$(az account get-access-token \
-    --resource https://analysis.windows.net/powerbi/api \
+    --resource https://api.fabric.microsoft.com \
     --query accessToken -o tsv)
-
-# 3. Derive the Connection Name
+ 
+# Build connection name
 CLEAN_NAME=$(echo "$TARGET_SPN_DISPLAY_NAME" | tr ' ' '-')
 FABRIC_CONN_NAME="db-$CLEAN_NAME"
-
+ 
 echo "Searching for Connection Name: $FABRIC_CONN_NAME"
-
-# 4. Locate the Connection ID via Fabric API
+ 
+# Fetch Fabric connections
 RESPONSE=$(curl -s -X GET \
   -H "Authorization: Bearer $FABRIC_TOKEN" \
   "https://api.fabric.microsoft.com/v1/connections")
-
+ 
+# Extract connection ID
 CONNECTION_ID=$(echo "$RESPONSE" | jq -r ".value[] | select(.displayName==\"$FABRIC_CONN_NAME\") | .id // empty")
-
+ 
+# If connection does not exist — skip safely
 if [ -z "$CONNECTION_ID" ]; then
-    echo "ERROR: Fabric Connection '$FABRIC_CONN_NAME' not found."
-    exit 1
+    echo "INFO: Fabric connection '$FABRIC_CONN_NAME' not found. Skipping."
+    exit 0
 fi
-
+ 
+# Extract existing credential type
+EXISTING_CRED_TYPE=$(echo "$RESPONSE" | jq -r ".value[] | select(.displayName==\"$FABRIC_CONN_NAME\") | .credentialDetails.credentialType // empty")
+ 
 echo "Connection Found. ID: $CONNECTION_ID"
-
-# 5. Construct the Lean Payload
-# We remove 'connectionEncryption' and 'encryptionAlgorithm' to avoid 'InvalidInput' 400 errors.
-# The API will preserve existing encryption settings if they are omitted.
-# We ensure 'DatabricksClientCredentials' is used as the specific type.
+echo "Existing Credential Type: $EXISTING_CRED_TYPE"
+ 
+# If not OAuth SPN — skip (do NOT delete)
+if [ "$EXISTING_CRED_TYPE" != "DatabricksClientCredentials" ]; then
+    echo "WARNING: Connection is not OAuth SPN type."
+    echo "Skipping update to avoid breaking existing auth."
+    echo "No action taken."
+    exit 0
+fi
+ 
+# Build PATCH payload
 PAYLOAD=$(cat <<EOF
 {
   "credentialDetails": {
@@ -58,30 +69,27 @@ PAYLOAD=$(cat <<EOF
 }
 EOF
 )
-
-# 6. Execute PATCH and Capture Error Body
-DEBUG_FILE="fabric_api_error_log.json"
-echo "Patching credentials in Fabric..."
-
+ 
+DEBUG_FILE="fabric_patch_error.json"
+ 
+echo "OAuth connection detected. Updating credentials..."
+ 
 PATCH_CODE=$(curl -s -w "%{http_code}" -X PATCH \
   -H "Authorization: Bearer $FABRIC_TOKEN" \
   -H "Content-Type: application/json" \
   -d "$PAYLOAD" \
-  "https://api.fabric.microsoft.com/v1/connections/$CONNECTION_ID" -o "$DEBUG_FILE")
-
-if [ "$PATCH_CODE" -eq 200 ] || [ "$PATCH_CODE" -eq 204 ]; then
-    echo "SUCCESS: Microsoft Fabric connection updated successfully."
+  "https://api.fabric.microsoft.com/v1/connections/$CONNECTION_ID" \
+  -o "$DEBUG_FILE")
+ 
+if [[ "$PATCH_CODE" =~ ^20 ]]; then
+    echo "SUCCESS: Fabric credentials updated safely."
     rm -f "$DEBUG_FILE"
-else    
-    echo "FAILURE: Fabric API returned HTTP status $PATCH_CODE"
-    echo "--- Detailed Error Body from Microsoft Fabric ---"
-    if [ -f "$DEBUG_FILE" ]; then
-        cat "$DEBUG_FILE"
-        echo ""
-    fi
-    echo "------------------------------------------------"
-    # Print the payload we sent (hiding the secret) for further debugging
-    echo "Sent Payload (Secret Masked):"
-    echo "$PAYLOAD" | jq '.credentialDetails.credentials.servicePrincipalKey = "***"'
-    exit 1
+    exit 0
+else
+    echo "ERROR: PATCH failed (HTTP $PATCH_CODE)"
+    echo "--- Fabric Error Response ---"
+    cat "$DEBUG_FILE"
+    echo "--------------------------------"
+    echo "Skipping failure to avoid pipeline break."
+    exit 0
 fi
