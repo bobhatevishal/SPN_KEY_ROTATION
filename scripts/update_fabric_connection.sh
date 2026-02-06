@@ -17,13 +17,11 @@ echo "Fabric Integration: Syncing Databricks Credentials"
 echo "-------------------------------------------------------"
 
 # 2. Authenticate for Microsoft Fabric (Power BI API)
-# We use the standard audience for Power BI / Fabric REST operations
 FABRIC_TOKEN=$(az account get-access-token \
     --resource https://analysis.windows.net/powerbi/api \
     --query accessToken -o tsv)
 
 # 3. Derive the Connection Name
-# Logic: prefix 'db-' + sanitized SPN name (spaces to dashes)
 CLEAN_NAME=$(echo "$TARGET_SPN_DISPLAY_NAME" | tr ' ' '-')
 FABRIC_CONN_NAME="db-$CLEAN_NAME"
 
@@ -34,20 +32,19 @@ RESPONSE=$(curl -s -X GET \
   -H "Authorization: Bearer $FABRIC_TOKEN" \
   "https://api.fabric.microsoft.com/v1/connections")
 
-# Filter the list for the matching display name
 CONNECTION_ID=$(echo "$RESPONSE" | jq -r ".value[] | select(.displayName==\"$FABRIC_CONN_NAME\") | .id // empty")
 
 if [ -z "$CONNECTION_ID" ]; then
     echo "ERROR: Fabric Connection '$FABRIC_CONN_NAME' not found."
-    echo "Verify the name in 'Manage Connections and Gateways' matches precisely."
     exit 1
 fi
 
 echo "Connection Found. ID: $CONNECTION_ID"
 
-# 5. Construct the Corrected Payload
-# - servicePrincipalId: The Client ID of the SPN being rotated.
-# - servicePrincipalKey: The newly generated secret.
+# 5. Construct the Lean Payload
+# We remove 'connectionEncryption' and 'encryptionAlgorithm' to avoid 'InvalidInput' 400 errors.
+# The API will preserve existing encryption settings if they are omitted.
+# We ensure 'DatabricksClientCredentials' is used as the specific type.
 PAYLOAD=$(cat <<EOF
 {
   "credentialDetails": {
@@ -56,16 +53,13 @@ PAYLOAD=$(cat <<EOF
       "servicePrincipalId": "$TARGET_APPLICATION_ID",
       "servicePrincipalKey": "$FINAL_OAUTH_SECRET"
     },
-    "connectionEncryption": "Encrypted",
-    "encryptionAlgorithm": "None",
     "privacyLevel": "Private"
   }
 }
 EOF
 )
 
-# 6. Execute PATCH and Capture Error Body for Debugging
-# We write the response body to a file to inspect if HTTP 400 occurs
+# 6. Execute PATCH and Capture Error Body
 DEBUG_FILE="fabric_api_error_log.json"
 echo "Patching credentials in Fabric..."
 
@@ -84,9 +78,10 @@ else
     if [ -f "$DEBUG_FILE" ]; then
         cat "$DEBUG_FILE"
         echo ""
-    else
-        echo "No error body returned."
     fi
     echo "------------------------------------------------"
+    # Print the payload we sent (hiding the secret) for further debugging
+    echo "Sent Payload (Secret Masked):"
+    echo "$PAYLOAD" | jq '.credentialDetails.credentials.servicePrincipalKey = "***"'
     exit 1
 fi
