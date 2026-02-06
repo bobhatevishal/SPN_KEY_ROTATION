@@ -4,7 +4,7 @@
 # Requirement: jq, az, curl
 set -e
 
-# Load environment state
+# 1. Load environment state
 if [ -f db_env.sh ]; then
     . ./db_env.sh
 else
@@ -12,49 +12,52 @@ else
     exit 1
 fi
 
+# 2. CLEAN VARIABLES (Crucial to prevent HTTP 400)
+# This removes any hidden newlines, carriage returns, or spaces
+FINAL_OAUTH_SECRET=$(echo "$FINAL_OAUTH_SECRET" | tr -d '\r\n ')
+TARGET_APPLICATION_ID=$(echo "$TARGET_APPLICATION_ID" | tr -d '\r\n ')
+
 echo "-------------------------------------------------------"
 echo "Fabric Integration: Scanning & Syncing Databricks Credentials"
 echo "-------------------------------------------------------"
 
-# Authenticate Fabric API
+# 3. Authenticate Fabric API
 FABRIC_TOKEN=$(az account get-access-token \
     --resource https://api.fabric.microsoft.com \
     --query accessToken -o tsv)
 
-# Build connection name
+# 4. Build connection name
 CLEAN_NAME=$(echo "$TARGET_SPN_DISPLAY_NAME" | tr ' ' '-')
 FABRIC_CONN_NAME="db-$CLEAN_NAME"
 
 echo "Searching for Connection Name: $FABRIC_CONN_NAME"
 
-# Fetch Fabric connections
+# 5. Fetch Fabric connections
 RESPONSE=$(curl -s -X GET \
   -H "Authorization: Bearer $FABRIC_TOKEN" \
   "https://api.fabric.microsoft.com/v1/connections")
 
-# Extract connection ID
+# 6. Extract connection ID
 CONNECTION_ID=$(echo "$RESPONSE" | jq -r ".value[] | select(.displayName==\"$FABRIC_CONN_NAME\") | .id // empty")
 
-# If connection does not exist — skip safely
 if [ -z "$CONNECTION_ID" ]; then
     echo "INFO: Fabric connection '$FABRIC_CONN_NAME' not found. Skipping."
     exit 0
 fi
 
 echo "Connection Found. ID: $CONNECTION_ID"
-echo "Force-updating credential to OAuth2 (Databricks Client Credentials)..."
+echo "Force-updating to Databricks Client Credentials (OAuth2)..."
 
-# 5. Push the new secret to Fabric
-# REFACTORED: Removed encryptedConnection, encryptionAlgorithm, and privacyLevel 
-# to prevent "Bad Request" errors caused by immutable field validation.
-# We also use the variable $TARGET_APPLICATION_ID for better flexibility.
-
+# 7. Push the new secret to Fabric
+# We use 'format: DatabricksClientCredentials' to tell Fabric this is an SPN flow.
+# We also omit privacyLevel/encryption to avoid validation conflicts.
 PATCH_RESPONSE=$(curl -s -w "\n%{http_code}" -X PATCH \
   -H "Authorization: Bearer $FABRIC_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{
     \"credentialDetails\": {
       \"credentialType\": \"OAuth2\",
+      \"format\": \"DatabricksClientCredentials\",
       \"credentials\": {
         \"clientSecret\": \"$FINAL_OAUTH_SECRET\",
         \"clientId\": \"$TARGET_APPLICATION_ID\"
@@ -64,15 +67,19 @@ PATCH_RESPONSE=$(curl -s -w "\n%{http_code}" -X PATCH \
   }" \
   "https://api.fabric.microsoft.com/v1/connections/$CONNECTION_ID")
 
-# Extract the HTTP status code from the last line
+# 8. Parse Response
 PATCH_CODE=$(echo "$PATCH_RESPONSE" | tail -n1)
-# Extract the response body (for debugging)
 PATCH_BODY=$(echo "$PATCH_RESPONSE" | sed '$d')
 
 if [ "$PATCH_CODE" -eq 200 ] || [ "$PATCH_CODE" -eq 204 ]; then
-    echo "SUCCESS: Connection converted to OAuth2 and updated successfully."
+    echo "SUCCESS: Connection updated to Databricks Client Credentials."
 else
+    echo "-------------------------------------------------------"
     echo "FAILURE: Fabric API returned HTTP status $PATCH_CODE"
-    echo "Detailed Error from Fabric: $PATCH_BODY"
+    echo "Detailed Error Message: $PATCH_BODY"
+    echo "-------------------------------------------------------"
+    echo "TROUBLESHOOTING TIPS:"
+    echo "1. Verify the Jenkins SPN is an 'Owner' of connection $CONNECTION_ID."
+    echo "2. Check if 'Service principals can use Fabric APIs' is enabled in Fabric Admin Tenant settings."
     exit 1
 fi
