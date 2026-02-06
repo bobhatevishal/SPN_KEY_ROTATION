@@ -1,82 +1,102 @@
 pipeline {
-    agent any
- 
-    parameters {
-        string(name: 'SPN_LIST', defaultValue: 'automation-spn', description: 'Enter a single SPN name, a comma-separated list, or "ALL"')
-        // --- Discovery Parameters ---
-        string(name: 'AZURE_RESOURCE_GROUP', defaultValue: 'rg-databricks-prod', description: 'Resource Group Name')
-        string(name: 'AZURE_WORKSPACE_NAME', defaultValue: 'adb-prod-workspace', description: 'Workspace Name')
-        string(name: 'SQL_WAREHOUSE_NAME', defaultValue: 'Serverless Starter Warehouse', description: 'SQL Warehouse Name')
+  agent any
+
+  parameters {
+    string(name: 'SPN_LIST', defaultValue: 'sp-m360-vinayak-002', description: 'Enter a single SPN name, a comma-separated list, or "ALL"')
+  }
+
+  environment {
+    DATABRICKS_HOST   = 'https://accounts.azuredatabricks.net'
+    KEYVAULT_NAME     = credentials('keyvault-name')
+    ACCOUNT_ID        = credentials('databricks-account-id')
+    
+    AZURE_CLIENT_ID       = credentials('azure-client-id')
+    AZURE_CLIENT_SECRET   = credentials('azure-client-secret')
+    AZURE_TENANT_ID       = credentials('azure-tenant-id')
+    AZURE_SUBSCRIPTION_ID = credentials('azure-subscription-id')
+  }
+
+  stages {
+    stage('Initialize & Login') {
+      steps {
+        sh 'chmod +x scripts/*.sh'
+        // Login once and get the token for the entire run
+        sh './scripts/get_token.sh'
+      }
     }
- 
-    environment {
-        // --- CONSTANTS ---
-        DATABRICKS_HOST       = 'https://accounts.azuredatabricks.net'
-        FABRIC_API_URL        = "https://api.fabric.microsoft.com/v1"
- 
-        // --- CREDENTIALS ---
-        KEYVAULT_NAME         = credentials('keyvault-name')
-        ACCOUNT_ID            = credentials('databricks-account-id')
-        AZURE_CLIENT_ID       = credentials('azure-client-id')
-        AZURE_CLIENT_SECRET   = credentials('azure-client-secret')
-        AZURE_TENANT_ID       = credentials('azure-tenant-id')
-        AZURE_SUBSCRIPTION_ID = credentials('azure-subscription-id')
-        // --- MAPPINGS ---
-        AZURE_RESOURCE_GROUP  = "${params.AZURE_RESOURCE_GROUP}"
-        AZURE_WORKSPACE_NAME  = "${params.AZURE_WORKSPACE_NAME}"
-        TARGET_WAREHOUSE_NAME = "${params.SQL_WAREHOUSE_NAME}"
-    }
- 
-    stages {
-        stage('Initialize') {
-            steps {
-                sh 'chmod +x scripts/*.sh'
- 
-                // 1. Get Tokens
-                sh './scripts/get_token.sh'          // Databricks
-                sh './scripts/get_fabric_token.sh'   // Fabric
-                // 2. Discover URLs (Finds Workspace URL + HTTP Path)
-                sh './scripts/fetch_workspace_details.sh'
-            }
-        }
- 
-        stage('Process Service Principals') {
-            steps {
-                script {
-                    def spns = params.SPN_LIST.split(',').collect { it.trim() }
- 
-                    spns.each { spn ->
-                        stage("Rotate: ${spn}") {
-                            withEnv(["TARGET_SPN_DISPLAY_NAME=${spn}"]) {
-                                // 1. Fetch Internal ID
-                                sh './scripts/fetch_internal_id.sh'
- 
-                                // 2. Create NEW Secret (Always create first)
-                                sh './scripts/create_oauth_secret.sh'
- 
-                                // 3. Update Key Vault (New jobs get new secret)
-                                sh './scripts/store_keyvault.sh'
- 
-                                // 4. Update Fabric Connection
-                                // Updates the existing connection in "Manage Connections"
-                                echo "Updating Fabric Authentication..."
-                                sh './scripts/update_fabric_connection.sh'
- 
-                                // 5. Safe Cleanup
-                                // Deletes only secrets older than the top 2 (Retention Policy)
-                                echo "Running Safe Cleanup..."
-                                sh './scripts/delete_old_secrets.sh'
-                            }
-                        }
-                    }
+
+    stage('Process Service Principals') {
+      steps {
+        script {
+          def spns = []
+          
+          if (params.SPN_LIST.toUpperCase() == 'ALL') {
+            // OPTIONAL: Logic to fetch all 80 names from a file or API
+            // For now, let's assume a pre-defined list or comma-sep input
+            echo "Processing all SPNs..."
+          } else {
+            spns = params.SPN_LIST.split(',').collect { it.trim() }
+          }
+
+          // Loop through the list
+       // Use a standard each loop which is often more stable in Jenkins
+          spns.each { spn ->
+            // Re-bind to a local variable to avoid scoping issues
+            def currentSPN = spn
+            
+            stage("SPN: ${currentSPN}") {
+              try {
+                echo "Starting rotation for: ${currentSPN}"
+                
+                withEnv(["TARGET_SPN_DISPLAY_NAME=${currentSPN}"]) {
+                  // 1. Fetch ID and check if secrets exist
+                  sh './scripts/fetch_internal_id.sh'
+                  
+                  // Use the script block for logic
+                  script {
+                      // Fetch HAS_SECRETS from our env file
+                      def hasSecrets = sh(script: ". ./db_env.sh && echo \$HAS_SECRETS", returnStdout: true).trim()
+                      
+                      if (hasSecrets && hasSecrets.toInteger() > 0) {
+                          echo "Secrets found (${hasSecrets}). Running deletion..."
+                          sh './scripts/delete_old_secrets.sh'
+                      } else {
+                          echo "No secrets found. Skipping deletion."
+                      }
+
+                      // 2. CREATE THE SECRET
+                      sh './scripts/create_oauth_secret.sh'
+
+                      // 3. STRICT NULL CHECK
+                      def checkSecret = sh(
+                          script: ". ./db_env.sh && echo \$FINAL_OAUTH_SECRET", 
+                          returnStdout: true
+                      ).trim()
+
+                      if (!checkSecret || checkSecret == "null") {
+                          // This triggers the 'catch' block immediately
+                          error "FATAL: Secret for ${currentSPN} is NULL or empty. Aborting this SPN."
+                      }
+                      
+                      echo "Secret validated. Updating Key Vault..."
+                      sh './scripts/store_keyvault.sh'
+                  }
                 }
+              } catch (Exception e) {
+                echo "ERROR processing ${currentSPN}: ${e.getMessage()}"
+                currentBuild.result = 'UNSTABLE'
+                // Loop continues to the next SPN
+              }
             }
+          }
         }
+      }
     }
- 
-    post {
-        always {
-            sh 'rm -f db_env.sh'
-        }
+  }
+
+  post {
+    always {
+      sh 'rm -f db_env.sh'
     }
+  }
 }
