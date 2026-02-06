@@ -72,14 +72,25 @@ EOF
  
 DEBUG_FILE="fabric_patch_error.json"
  
-echo "OAuth connection detected. Updating credentials..."
+echo "Patching Fabric Connection ID: $CONNECTION_ID"
  
-PATCH_CODE=$(curl -s -w "%{http_code}" -X PATCH \
+PATCH_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH \
   -H "Authorization: Bearer $FABRIC_TOKEN" \
   -H "Content-Type: application/json" \
-  -d "$PAYLOAD" \
-  "https://api.fabric.microsoft.com/v1/connections/$CONNECTION_ID" \
-  -o "$DEBUG_FILE")
+  -d "{
+    \"credentialDetails\": {
+      \"credentialType\": \"OAuth2\",
+      \"credentials\": {
+        \"clientSecret\": \"$FINAL_OAUTH_SECRET\",
+        \"clientId\": \"$TARGET_APPLICATION_ID\"
+      },
+      \"encryptedConnection\": \"Encrypted\",
+      \"encryptionAlgorithm\": \"None\",
+      \"privacyLevel\": \"Private\",
+      \"skipTestConnection\": true
+    }
+  }" \
+  "https://api.fabric.microsoft.com/v1/connections/$CONNECTION_ID")
  
 if [[ "$PATCH_CODE" =~ ^20 ]]; then
     echo "SUCCESS: Fabric credentials updated safely."
