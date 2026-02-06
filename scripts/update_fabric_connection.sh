@@ -59,7 +59,7 @@ fi
 PAYLOAD=$(cat <<EOF
 {
   "credentialDetails": {
-    "credentialType": "DatabricksClientCredentials",
+    "credentialType": \"OAuth2\",
     "credentials": {
       "servicePrincipalId": "$TARGET_APPLICATION_ID",
       "servicePrincipalKey": "$FINAL_OAUTH_SECRET"
