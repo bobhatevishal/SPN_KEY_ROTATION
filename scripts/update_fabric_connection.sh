@@ -47,7 +47,7 @@ PATCH_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH \
       \"credentialType\": \"OAuth2\",
       \"credentials\": {
         \"clientSecret\": \"$FINAL_OAUTH_SECRET\",
-        \"clientId\": \"$TARGET_APPLICATION_ID\"
+        \"clientId\": \"842439d6-518c-42a5-af01-c492d638c6c9\"
       },
       \"encryptedConnection\": \"Encrypted\",
       \"encryptionAlgorithm\": \"None\",
