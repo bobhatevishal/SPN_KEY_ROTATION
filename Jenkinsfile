@@ -6,9 +6,9 @@ pipeline {
   }
 
   environment {
-    DATABRICKS_HOST   = 'https://accounts.azuredatabricks.net'
-    KEYVAULT_NAME     = credentials('keyvault-name')
-    ACCOUNT_ID        = credentials('databricks-account-id')
+    DATABRICKS_HOST       = 'https://accounts.azuredatabricks.net'
+    KEYVAULT_NAME         = credentials('keyvault-name')
+    ACCOUNT_ID            = credentials('databricks-account-id')
     
     AZURE_CLIENT_ID       = credentials('azure-client-id')
     AZURE_CLIENT_SECRET   = credentials('azure-client-secret')
@@ -31,17 +31,13 @@ pipeline {
           def spns = []
           
           if (params.SPN_LIST.toUpperCase() == 'ALL') {
-            // OPTIONAL: Logic to fetch all 80 names from a file or API
-            // For now, let's assume a pre-defined list or comma-sep input
             echo "Processing all SPNs..."
+            // Logic to fetch all names would go here
           } else {
             spns = params.SPN_LIST.split(',').collect { it.trim() }
           }
 
-          // Loop through the list
-       // Use a standard each loop which is often more stable in Jenkins
           spns.each { spn ->
-            // Re-bind to a local variable to avoid scoping issues
             def currentSPN = spn
             
             stage("SPN: ${currentSPN}") {
@@ -49,12 +45,9 @@ pipeline {
                 echo "Starting rotation for: ${currentSPN}"
                 
                 withEnv(["TARGET_SPN_DISPLAY_NAME=${currentSPN}"]) {
-                  // 1. Fetch ID and check if secrets exist
                   sh './scripts/fetch_internal_id.sh'
                   
-                  // Use the script block for logic
                   script {
-                      // Fetch HAS_SECRETS from our env file
                       def hasSecrets = sh(script: ". ./db_env.sh && echo \$HAS_SECRETS", returnStdout: true).trim()
                       
                       if (hasSecrets && hasSecrets.toInteger() > 0) {
@@ -64,28 +57,32 @@ pipeline {
                           echo "No secrets found. Skipping deletion."
                       }
 
-                      // 2. CREATE THE SECRET
+                      // 1. CREATE THE SECRET
                       sh './scripts/create_oauth_secret.sh'
 
-                      // 3. STRICT NULL CHECK
+                      // 2. STRICT NULL CHECK
                       def checkSecret = sh(
                           script: ". ./db_env.sh && echo \$FINAL_OAUTH_SECRET", 
                           returnStdout: true
                       ).trim()
 
                       if (!checkSecret || checkSecret == "null") {
-                          // This triggers the 'catch' block immediately
                           error "FATAL: Secret for ${currentSPN} is NULL or empty. Aborting this SPN."
                       }
                       
+                      // 3. UPDATE KEY VAULT (Single Source of Truth)
                       echo "Secret validated. Updating Key Vault..."
                       sh './scripts/store_keyvault.sh'
+
+                      // 4. UPDATE MICROSOFT FABRIC (Consumer Update)
+                      // This runs only if Key Vault update succeeded
+                      echo "Key Vault updated. Syncing to Microsoft Fabric..."
+                      sh './scripts/update_fabric_connection.sh'
                   }
                 }
               } catch (Exception e) {
                 echo "ERROR processing ${currentSPN}: ${e.getMessage()}"
                 currentBuild.result = 'UNSTABLE'
-                // Loop continues to the next SPN
               }
             }
           }
