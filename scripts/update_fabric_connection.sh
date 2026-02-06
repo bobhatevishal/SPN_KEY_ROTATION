@@ -48,7 +48,7 @@ PAYLOAD=$(cat <<EOF
 {
   "credentialDetails": {
     "useCallerCredentials": false,
-    "authType": "DatabricksCredentials",
+    "authType": \"OAuth2\",
     "clientId": "${INTERNAL_SP_ID}",
     "secret": {
         "type": "AzureKeyVault",
