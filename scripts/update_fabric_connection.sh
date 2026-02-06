@@ -6,7 +6,7 @@ set -e
 
 # 2. CONFIGURATION: Define the Connection ID here or in db_env.sh
 # Replace this ID with the one you verified from the Fabric Portal
-FABRIC_CONN_ID="1c2e7a3a-1434-4311-b39a-a392fc192be5"
+FABRIC_CONN_ID="10ba9ab7-2832-4023-af43-2d38a6adda69"
 
 # 3. Force-clean variables
 FINAL_OAUTH_SECRET=$(echo "$FINAL_OAUTH_SECRET" | tr -d '\r\n ')
