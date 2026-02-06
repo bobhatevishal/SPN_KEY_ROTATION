@@ -47,47 +47,28 @@ EXISTING_CRED_TYPE=$(echo "$RESPONSE" | jq -r ".value[] | select(.displayName==\
 echo "Connection Found. ID: $CONNECTION_ID"
 echo "Existing Credential Type: $EXISTING_CRED_TYPE"
  
-# If not OAuth SPN — skip (do NOT delete)
-if [ "$EXISTING_CRED_TYPE" != "DatabricksClientCredentials" ]; then
-    echo "WARNING: Connection is not OAuth SPN type."
-    echo "Skipping update to avoid breaking existing auth."
+# MODIFIED GUARD: Allow update if it's Basic or already DatabricksClientCredentials
+if [ "$EXISTING_CRED_TYPE" != "DatabricksClientCredentials" ] && [ "$EXISTING_CRED_TYPE" != "Basic" ]; then
+    echo "WARNING: Connection type ($EXISTING_CRED_TYPE) is not compatible for automated rotation."
     echo "No action taken."
     exit 0
 fi
  
-# Build PATCH payload
-PAYLOAD=$(cat <<EOF
-{
-  "credentialDetails": {
-    "credentialType": \"OAuth2\",
-    "credentials": {
-      "servicePrincipalId": "$TARGET_APPLICATION_ID",
-      "servicePrincipalKey": "$FINAL_OAUTH_SECRET"
-    },
-    "privacyLevel": "Private"
-  }
-}
-EOF
-)
+echo "Patching Fabric Connection ID: $CONNECTION_ID with new Service Principal Secret..."
  
-DEBUG_FILE="fabric_patch_error.json"
- 
-echo "Patching Fabric Connection ID: $CONNECTION_ID"
- 
-PATCH_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH \
+# NEW PAYLOAD STRUCTURE
+# Note: Use 'DatabricksClientCredentials' and specific field names
+PATCH_CODE=$(curl -s -o "$DEBUG_FILE" -w "%{http_code}" -X PATCH \
   -H "Authorization: Bearer $FABRIC_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{
     \"credentialDetails\": {
-      \"credentialType\": \"OAuth2\",
+      \"credentialType\": \"DatabricksClientCredentials\",
       \"credentials\": {
-        \"clientSecret\": \"$FINAL_OAUTH_SECRET\",
-        \"clientId\": \"$TARGET_APPLICATION_ID\"
+        \"servicePrincipalId\": \"$TARGET_APPLICATION_ID\",
+        \"servicePrincipalKey\": \"$FINAL_OAUTH_SECRET\"
       },
-      \"encryptedConnection\": \"Encrypted\",
-      \"encryptionAlgorithm\": \"None\",
-      \"privacyLevel\": \"Private\",
-      \"skipTestConnection\": true
+      \"privacyLevel\": \"Private\"
     }
   }" \
   "https://api.fabric.microsoft.com/v1/connections/$CONNECTION_ID")
