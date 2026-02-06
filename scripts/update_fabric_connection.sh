@@ -52,14 +52,14 @@ PATCH_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH \
       },
       \"encryptedConnection\": \"Encrypted\",
       \"encryptionAlgorithm\": \"None\",
-      \"privacyLevel\": \"Organizational\"
+      \"privacyLevel\": \"Private\"
     }
   }" \
   "https://api.fabric.microsoft.com/v1/connections/$CONNECTION_ID")
 
 if [ "$PATCH_CODE" -eq 200 ] || [ "$PATCH_CODE" -eq 204 ]; then
     echo "SUCCESS: Microsoft Fabric connection updated successfully."
-else
+else    
     echo "FAILURE: Fabric API returned HTTP status $PATCH_CODE"
     exit 1
 fi
