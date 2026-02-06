@@ -35,51 +35,33 @@ fi
 # Extract existing credential type
 EXISTING_CRED_TYPE=$(echo "$RESPONSE" | jq -r ".value[] | select(.displayName==\"$FABRIC_CONN_NAME\") | .credentialDetails.credentialType // empty")
 echo "Connection Found. ID: $CONNECTION_ID"
-echo "Existing Credential Type: $EXISTING_CRED_TYPE"
-# If not OAuth SPN — skip (do NOT delete)
-if [ "$EXISTING_CRED_TYPE" != "DatabricksClientCredentials" ]; then
-    echo "WARNING: Connection is not OAuth SPN type."
-    echo "Skipping update to avoid breaking existing auth."
-    echo "No action taken."
-    exit 0
-fi
-# Build PATCH payload
-PAYLOAD=$(cat <<EOF
-{
-  "credentialDetails": {
-    "useCallerCredentials": false,
-    "authType": \"OAuth2\",
-    "clientId": "${INTERNAL_SP_ID}",
-    "secret": {
-        "type": "AzureKeyVault",
-        "keyVaultUrl": "https://${KEYVAULT_NAME}.vault.azure.net/",
-        "secretName": "${TARGET_SPN_DISPLAY_NAME}-secret"
-    }
-  }
-}
-EOF
-)
+echo "Force-updating credential to OAuth2 (Databricks Client Credentials)..."
  
-DEBUG_FILE="fabric_patch_response.txt"
- 
-echo "Patching Fabric Connection ID: $CONNECTION_ID"
- 
-# EXECUTE PATCH
-# CORRECTED: Uses the $PAYLOAD variable instead of manual JSON
-PATCH_CODE=$(curl -s -o "$DEBUG_FILE" -w "%{http_code}" -X PATCH \
+# 5. Push the new secret to Fabric
+# We EXPLICITLY set credentialType to "OAuth2" to overwrite the existing "Basic" type.
+PATCH_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH \
   -H "Authorization: Bearer $FABRIC_TOKEN" \
   -H "Content-Type: application/json" \
-  -d "$PAYLOAD" \
+  -d "{
+    \"credentialDetails\": {
+      \"credentialType\": \"OAuth2\",
+      \"credentials\": {
+        \"clientSecret\": \"$FINAL_OAUTH_SECRET\",
+        \"clientId\": \"$TARGET_APPLICATION_ID\"
+      },
+      \"encryptedConnection\": \"Encrypted\",
+      \"encryptionAlgorithm\": \"None\",
+      \"privacyLevel\": \"Private\",
+      \"skipTestConnection\": true
+    }
+  }" \
   "https://api.fabric.microsoft.com/v1/connections/$CONNECTION_ID")
-if [[ "$PATCH_CODE" =~ ^20 ]]; then
-    echo "SUCCESS: Fabric credentials updated safely."
-    rm -f "$DEBUG_FILE"
-    exit 0
+ 
+if [ "$PATCH_CODE" -eq 200 ] || [ "$PATCH_CODE" -eq 204 ]; then
+    echo "SUCCESS: Connection converted to OAuth2 and updated successfully."
 else
-    echo "ERROR: PATCH failed (HTTP $PATCH_CODE)"
-    echo "--- Fabric Error Response ---"
-    cat "$DEBUG_FILE"
-    echo "--------------------------------"
-    echo "Skipping failure to avoid pipeline break."
-    exit 0
+    echo "FAILURE: Fabric API returned HTTP status $PATCH_CODE"
+    # Optional: Print response for debugging if it fails
+    # curl ... (same command without -o /dev/null)
+    exit 1
 fi
