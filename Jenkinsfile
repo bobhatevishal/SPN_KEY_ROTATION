@@ -2,7 +2,7 @@ pipeline {
   agent any
 
   parameters {
-    string(name: 'SPN_LIST', defaultValue: 'sp-m360-vinayak-002', description: 'Enter a single SPN name, a comma-separated list, or "ALL"')
+    string(name: 'SPN_LIST', defaultValue: 'automation-spn', description: 'Enter a single SPN name, a comma-separated list, or "ALL"')
   }
 
   environment {
