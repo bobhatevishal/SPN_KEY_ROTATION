@@ -131,13 +131,14 @@ PAYLOAD=$(jq -n \
   --arg secret "$CLIENT_SECRET" \
 '{
   "credentialDetails": {
-    "credentialType": "DatabricksClientCredentials",
-    "databricksClientCredentials": {
-      "tenantId": $tenant,
-      "clientId": $clientId,
-      "clientSecret": $secret
-    },
-    "useCallerCredentials": false
+    "credentialType": "Key",
+    "credentials": "{\"key\":\"dose16f192f1179d05c681c2aa7100fc7ef6\"}",
+    "encryptedConnection": "Encrypted",
+    "encryptionAlgorithm": "None",
+    "privacyLevel": "Private"
+  }
+}
+ useCallerCredentials": false
   }
 }')
  
