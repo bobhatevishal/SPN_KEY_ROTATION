@@ -47,8 +47,6 @@ echo "Acquiring Fabric API Token..."
 FABRIC_TOKEN=$(az account get-access-token \
     --resource "https://api.fabric.microsoft.com/" \
     --query accessToken -o tsv)
-
-    echo "$FABRIC_TOKEN"
  
 if [ -z "$FABRIC_TOKEN" ]; then
     echo "ERROR: Failed to acquire Fabric access token"
@@ -112,37 +110,26 @@ if [ -z "$CLIENT_SECRET" ]; then
 fi
  
 echo "Client Secret retrieved successfully"
-echo "------------ before vali script---------------"
-echo "--- INSPECTING EXISTING CONNECTION STRUCTURE ---"
-CURRENT_CONN_JSON=$(curl -s -H "Authorization: Bearer $FABRIC_TOKEN" \
-  "https://api.fabric.microsoft.com/v1/connections/$CONNECTION_ID")
-
-echo "Current Connection Type: $(echo $CURRENT_CONN_JSON | jq -r '.credentialDetails.credentials.credentialType')"
-echo "Required Fields Check: $(echo $CURRENT_CONN_JSON | jq '.credentialDetails.credentials | keys')"
-echo "------------------------------------------------"
  
 # 10. Build Correct Fabric Payload — Databricks Client Credentials
-# 10. Build Correct Fabric Payload
 echo "Building Fabric credential payload..."
-
+ 
 PAYLOAD=$(jq -n \
-  --arg tenant "6fbff720-d89b-4675-b188-48491f24b460" \
+  --arg tenant "$AZURE_TENANT_ID" \
   --arg clientId "$CLIENT_ID" \
   --arg secret "$CLIENT_SECRET" \
 '{
-  "credentialDetails": {
-    "credentialType": "Key",
-    "credentials": "{\"key\":\"dose16f192f1179d05c681c2aa7100fc7ef6\"}",
-    "encryptedConnection": "Encrypted",
-    "encryptionAlgorithm": "None",
-    "privacyLevel": "Private"
+  "credentials": {
+    "authenticationType": "DatabricksClientCredentials",
+    "tenantId": $tenant,
+    "clientId": $clientId,
+    "clientSecret": $secret
   }
-}
 }')
  
 # Debug payload (hide secret)
 echo "---------------- PAYLOAD DEBUG ----------------"
-echo "$PAYLOAD" | jq .
+echo "$PAYLOAD" | jq '.credentials.clientSecret="***HIDDEN***"'
 echo "------------------------------------------------"
  
 # 11. PATCH Fabric Credentials
@@ -152,7 +139,7 @@ PATCH_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X PATCH \
   -H "Authorization: Bearer $FABRIC_TOKEN" \
   -H "Content-Type: application/json" \
   -d "$PAYLOAD" \
-  "https://api.fabric.microsoft.com/v1/connections/$CONNECTION_ID")
+  "https://api.fabric.microsoft.com/v1/connections/$CONNECTION_ID/credentials")
  
 HTTP_STATUS=$(echo "$PATCH_RESPONSE" | tail -n1 | cut -d':' -f2)
 BODY=$(echo "$PATCH_RESPONSE" | sed '$d')
