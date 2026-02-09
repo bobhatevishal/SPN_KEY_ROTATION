@@ -124,7 +124,7 @@ PAYLOAD=$(jq -n \
     "useCallerCredentials": false,
     "credentials": {
       "credentialType": "DatabricksClientCredentials",
-      "tenantId": $tenant,
+      "tenantId": "6fbff720-d89b-4675-b188-48491f24b460",
       "clientId": $clientId,
       "clientSecret": $secret
     }
