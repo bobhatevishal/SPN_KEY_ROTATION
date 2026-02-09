@@ -121,17 +121,14 @@ echo $CURRENT_CONN_JSON | jq '.connectionDetails'
 echo "------------------------------------------------"
  
 # 10. Build Correct Fabric Payload — Databricks Client Credentials
+# 10. Build Correct Fabric Payload
 echo "Building Fabric credential payload..."
- 
+
 PAYLOAD=$(jq -n \
   --arg tenant "6fbff720-d89b-4675-b188-48491f24b460" \
   --arg clientId "$CLIENT_ID" \
   --arg secret "$CLIENT_SECRET" \
 '{
-  "connectionDetails": {
-    "databricksWorkspaceUrl": "https://adb-7405609173671370.10.azuredatabricks.net",
-    "sqlWarehouseHttpPath": "/sql/1.0/warehouses/559747c78f71249c"
-  },
   "credentialDetails": {
     "credentialType": "DatabricksClientCredentials",
     "databricksClientCredentials": {
