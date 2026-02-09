@@ -117,6 +117,7 @@ CURRENT_CONN_JSON=$(curl -s -H "Authorization: Bearer $FABRIC_TOKEN" \
 
 echo "Current Connection Type: $(echo $CURRENT_CONN_JSON | jq -r '.credentialDetails.credentials.credentialType')"
 echo "Required Fields Check: $(echo $CURRENT_CONN_JSON | jq '.credentialDetails.credentials | keys')"
+echo $CURRENT_CONN_JSON | jq '.connectionDetails'
 echo "------------------------------------------------"
  
 # 10. Build Correct Fabric Payload — Databricks Client Credentials
@@ -126,15 +127,19 @@ PAYLOAD=$(jq -n \
   --arg tenant "6fbff720-d89b-4675-b188-48491f24b460" \
   --arg clientId "$CLIENT_ID" \
   --arg secret "$CLIENT_SECRET" \
-  --arg workspace "https://adb-7405609173671370.10.azuredatabricks.net" \
 '{
+  "connectionDetails": {
+    "databricksWorkspaceUrl": "https://adb-7405609173671370.10.azuredatabricks.net",
+    "sqlWarehouseHttpPath": "/sql/1.0/warehouses/559747c78f71249c"
+  },
   "credentialDetails": {
     "credentialType": "DatabricksClientCredentials",
     "databricksClientCredentials": {
       "tenantId": $tenant,
       "clientId": $clientId,
       "clientSecret": $secret
-    }
+    },
+    "useCallerCredentials": false
   }
 }')
  
