@@ -132,7 +132,7 @@ PAYLOAD=$(jq -n \
  
 # Debug payload (hide secret)
 echo "---------------- PAYLOAD DEBUG ----------------"
-echo "$PAYLOAD" | jq '.credentials.clientSecret="***HIDDEN***"'
+echo "$PAYLOAD" | jq .
 echo "------------------------------------------------"
  
 # 11. PATCH Fabric Credentials
