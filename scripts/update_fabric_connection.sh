@@ -110,6 +110,14 @@ if [ -z "$CLIENT_SECRET" ]; then
 fi
  
 echo "Client Secret retrieved successfully"
+echo "------------ before vali script---------------"
+echo "--- INSPECTING EXISTING CONNECTION STRUCTURE ---"
+CURRENT_CONN_JSON=$(curl -s -H "Authorization: Bearer $FABRIC_TOKEN" \
+  "https://api.fabric.microsoft.com/v1/connections/$CONNECTION_ID")
+
+echo "Current Connection Type: $(echo $CURRENT_CONN_JSON | jq -r '.credentialDetails.credentials.credentialType')"
+echo "Required Fields Check: $(echo $CURRENT_CONN_JSON | jq '.credentialDetails.credentials | keys')"
+echo "------------------------------------------------"
  
 # 10. Build Correct Fabric Payload — Databricks Client Credentials
 echo "Building Fabric credential payload..."
