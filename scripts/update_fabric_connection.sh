@@ -19,7 +19,7 @@ REQUIRED_VARS=(
   TARGET_SPN_DISPLAY_NAME
   AZURE_TENANT_ID
   KEYVAULT_NAME
-  db-$CLEAN_NAME-secret
+  SECRET_NAME
   SPN_CLIENT_ID_SECRET_NAME
 )
  
@@ -32,7 +32,7 @@ done
  
 echo "Target SPN Display Name: $TARGET_SPN_DISPLAY_NAME"
 echo "Key Vault: $KEYVAULT_NAME"
-echo "Secret Name: $db-$CLEAN_NAME-secret"
+echo "Secret Name: $SECRET_NAME"
  
 # 2. Validate Azure session
 if ! az account show > /dev/null 2>&1; then
@@ -96,7 +96,7 @@ echo "Client ID retrieved"
 # 8. Fetch Client Secret from Key Vault
 CLIENT_SECRET=$(az keyvault secret show \
   --vault-name "$KEYVAULT_NAME" \
-  --name "$db-$CLEAN_NAME-secret" \
+  --name "$SECRET_NAME" \
   --query "value" -o tsv)
  
 if [ -z "$CLIENT_SECRET" ]; then
