@@ -121,8 +121,7 @@ PAYLOAD=$(jq -n \
   --arg secret "$CLIENT_SECRET" \
 '{
   "credentials": {
-    "credentialType": "ServicePrincipal",
-    "servicePrincipal": {
+    "credentialType": "DatabricksClientCredential",
       "tenantId": $tenant,
       "clientId": $clientId,
       "clientSecret": $secret
