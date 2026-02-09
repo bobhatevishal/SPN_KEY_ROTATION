@@ -20,7 +20,7 @@ REQUIRED_VARS=(
   AZURE_TENANT_ID
   KEYVAULT_NAME
   SECRET_NAME
-  SPN_CLIENT_ID_SECRET_NAME
+  APP_ID
 )
  
 for VAR in "${REQUIRED_VARS[@]}"; do
@@ -83,7 +83,7 @@ echo "Found Fabric Connection ID: $CONNECTION_ID"
 # 7. Fetch Client ID from Key Vault
 CLIENT_ID=$(az keyvault secret show \
   --vault-name "$KEYVAULT_NAME" \
-  --name "$SPN_CLIENT_ID_SECRET_NAME" \
+  --name "$APP_ID" \
   --query "value" -o tsv)
  
 if [ -z "$CLIENT_ID" ]; then
