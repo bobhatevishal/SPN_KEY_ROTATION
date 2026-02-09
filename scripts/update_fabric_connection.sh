@@ -121,10 +121,9 @@ PAYLOAD=$(jq -n \
   --arg workspace "https://adb-7405609173671370.10.azuredatabricks.net" \
 '{
   "credentialDetails": {
-    "useCallerCredentials": false,
-    "credentials": {
-      "credentialType": "DatabricksClientCredentials",
-      "tenantId": "6fbff720-d89b-4675-b188-48491f24b460",
+    "credentialType": "DatabricksClientCredentials",
+    "databricksClientCredentials": {
+      "tenantId": $tenant,
       "clientId": $clientId,
       "clientSecret": $secret
     }
