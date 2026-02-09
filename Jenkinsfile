@@ -92,7 +92,7 @@ pipeline {
   }
   post {
     always {
-      sudo cat db_env.sh 
+      cat db_env.sh 
       sh 'rm -f db_env.sh'
     }
   }
