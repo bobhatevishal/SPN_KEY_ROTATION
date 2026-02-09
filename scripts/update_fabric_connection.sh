@@ -83,7 +83,7 @@ echo "Found Fabric Connection ID: $CONNECTION_ID"
 # 7. Fetch Client ID from Key Vault
 CLIENT_ID=$(az keyvault secret show \
   --vault-name "$KEYVAULT_NAME" \
-  --name "$TARGET_APPLICATION_ID" \
+  --name "$ID_NAME" \
   --query "value" -o tsv)
  
 if [ -z "$CLIENT_ID" ]; then
