@@ -117,7 +117,6 @@ CURRENT_CONN_JSON=$(curl -s -H "Authorization: Bearer $FABRIC_TOKEN" \
 
 echo "Current Connection Type: $(echo $CURRENT_CONN_JSON | jq -r '.credentialDetails.credentials.credentialType')"
 echo "Required Fields Check: $(echo $CURRENT_CONN_JSON | jq '.credentialDetails.credentials | keys')"
-echo $CURRENT_CONN_JSON | jq '.connectionDetails'
 echo "------------------------------------------------"
  
 # 10. Build Correct Fabric Payload — Databricks Client Credentials
