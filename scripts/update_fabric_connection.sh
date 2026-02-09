@@ -118,6 +118,7 @@ PAYLOAD=$(jq -n \
   --arg tenant "$AZURE_TENANT_ID" \
   --arg clientId "$CLIENT_ID" \
   --arg secret "$CLIENT_SECRET" \
+  --arg workspace "$DATABRICKS_WORKSPACE_URL" \
 '{
   "credentialDetails": {
     "useCallerCredentials": false,
@@ -127,6 +128,10 @@ PAYLOAD=$(jq -n \
       "clientId": $clientId,
       "clientSecret": $secret
     }
+  },
+  "connectionDetails": {
+    "databricksWorkspaceUrl": "https://adb-7405609173671370.10.azuredatabricks.net",
+    "sqlWarehouseHttpPath": "/sql/1.0/warehouses/559747c78f71249c"
   }
 }')
  
