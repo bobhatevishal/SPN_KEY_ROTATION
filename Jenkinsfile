@@ -92,7 +92,7 @@ pipeline {
   }
   post {
     always {
-      cat db_env.sh 
+      sh 'cat db_env.sh'
       sh 'rm -f db_env.sh'
     }
   }
