@@ -128,10 +128,6 @@ PAYLOAD=$(jq -n \
       "clientId": $clientId,
       "clientSecret": $secret
     }
-  },
-  "connectionDetails": {
-    "databricksWorkspaceUrl": "https://adb-7405609173671370.10.azuredatabricks.net",
-    "sqlWarehouseHttpPath": "/sql/1.0/warehouses/559747c78f71249c"
   }
 }')
  
