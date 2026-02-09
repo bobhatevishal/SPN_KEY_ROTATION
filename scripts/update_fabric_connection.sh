@@ -1,6 +1,5 @@
 #!/bin/bash
-# Description: Rotate Microsoft Fabric connection credentials using Azure SPN stored in Key Vault
- 
+# Description: Rotate Microsoft Fabric connection credentials using Databricks Client Credentials
 set -e
  
 echo "-------------------------------------------------------"
@@ -112,7 +111,7 @@ fi
  
 echo "Client Secret retrieved successfully"
  
-# 10. Build Correct Fabric Payload (SERVICE PRINCIPAL FORMAT)
+# 10. Build Correct Fabric Payload — Databricks Client Credentials
 echo "Building Fabric credential payload..."
  
 PAYLOAD=$(jq -n \
@@ -121,18 +120,17 @@ PAYLOAD=$(jq -n \
   --arg secret "$CLIENT_SECRET" \
 '{
   "credentials": {
-    "credentialType": "DatabricksClientCredential",
-      "tenantId": $tenant,
-      "clientId": $clientId,
-      "clientSecret": $secret
-    }
+    "authenticationType": "DatabricksClientCredentials",
+    "tenantId": $tenant,
+    "clientId": $clientId,
+    "clientSecret": $secret
   }
 }')
-
-echo "Payload Output"
-echo "$PAYLOAD" | jq .
  
-echo "Payload constructed successfully"
+# Debug payload (hide secret)
+echo "---------------- PAYLOAD DEBUG ----------------"
+echo "$PAYLOAD" | jq '.credentials.clientSecret="***HIDDEN***"'
+echo "------------------------------------------------"
  
 # 11. PATCH Fabric Credentials
 echo "Updating Fabric connection credentials..."
