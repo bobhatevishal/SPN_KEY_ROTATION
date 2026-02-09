@@ -119,11 +119,14 @@ PAYLOAD=$(jq -n \
   --arg clientId "$CLIENT_ID" \
   --arg secret "$CLIENT_SECRET" \
 '{
-  "credentials": {
-    "authenticationType": "DatabricksClientCredentials",
-    "tenantId": $tenant,
-    "clientId": $clientId,
-    "clientSecret": $secret
+  "credentialDetails": {
+    "useCallerCredentials": false,
+    "credentials": {
+      "credentialType": "DatabricksClientCredentials",
+      "tenantId": $tenant,
+      "clientId": $clientId,
+      "clientSecret": $secret
+    }
   }
 }')
  
@@ -139,7 +142,7 @@ PATCH_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X PATCH \
   -H "Authorization: Bearer $FABRIC_TOKEN" \
   -H "Content-Type: application/json" \
   -d "$PAYLOAD" \
-  "https://api.fabric.microsoft.com/v1/connections/$CONNECTION_ID/credentials")
+  "https://api.fabric.microsoft.com/v1/connections/$CONNECTION_ID")
  
 HTTP_STATUS=$(echo "$PATCH_RESPONSE" | tail -n1 | cut -d':' -f2)
 BODY=$(echo "$PATCH_RESPONSE" | sed '$d')
