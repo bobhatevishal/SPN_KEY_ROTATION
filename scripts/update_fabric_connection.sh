@@ -129,6 +129,9 @@ PAYLOAD=$(jq -n \
     }
   }
 }')
+
+echo "Payload Output"
+echo "$PAYLOAD" | jq .
  
 echo "Payload constructed successfully"
  
