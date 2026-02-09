@@ -111,21 +111,73 @@ fi
  
 echo "Client Secret retrieved successfully"
  
-# 10. Build Correct Fabric Payload — Databricks Client Credentials
-echo "Building Fabric credential payload..."
- 
+# 10. Build Payload for "Basic" Extension Credential
+# 10. Build Payload for "Basic" Extension Credential
+echo "Building Fabric credential payload for Extension/Basic type..."
+
+# We must double-escape or use jq to create a stringified JSON block for the 'credentials' field
+INNER_CREDENTIALS=$(jq -nc \
+  --arg user "$CLIENT_ID" \
+  --arg pass "$CLIENT_SECRET" \
+  '{"credentialData": [{"name": "username", "value": $user}, {"name": "password", "value": $pass}]}')
+
 PAYLOAD=$(jq -n \
-  --arg tenant "$AZURE_TENANT_ID" \
-  --arg clientId "$CLIENT_ID" \
-  --arg secret "$CLIENT_SECRET" \
-'{
-  "credentials": {
-    "authenticationType": "DatabricksClientCredentials",
-    "tenantId": $tenant,
-    "clientId": $clientId,
-    "clientSecret": $secret
-  }
-}')
+  --arg creds "$INNER_CREDENTIALS" \
+  '{
+    "credentialDetails": {
+      "credentialType": "Basic",
+      "credentials": $creds,
+      "encryptedConnection": "Any",
+      "encryptionAlgorithm": "NONE",
+      "privacyLevel": "Organizational",
+      "useCallerCredentials": false
+    }
+  }')
+
+# 11. PATCH Fabric Credentials
+echo "Updating Fabric connection credentials..."
+
+# Note: Using the v1/connections endpoint
+PATCH_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X PATCH \
+  -H "Authorization: Bearer $FABRIC_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "$PAYLOAD" \
+  "https://api.fabric.microsoft.com/v1/connections/$CONNECTION_ID")
+
+HTTP_STATUS=$(echo "$PATCH_RESPONSE" | tail -n1 | cut -d':' -f2)
+BODY=$(echo "$PATCH_RESPONSE" | sed '$d')
+
+# 12. Validate
+if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 204 ]; then
+    echo "SUCCESS: Fabric connection updated using Basic/Extension schema"
+else
+    echo "FAILURE: Fabric API returned HTTP $HTTP_STATUS"
+    echo "Response: $BODY"
+    exit 1
+fi
+  }')
+
+# 11. PATCH Fabric Credentials
+echo "Updating Fabric connection credentials..."
+
+# Note: Using the v1/connections endpoint
+PATCH_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X PATCH \
+  -H "Authorization: Bearer $FABRIC_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "$PAYLOAD" \
+  "https://api.fabric.microsoft.com/v1/connections/$CONNECTION_ID")
+
+HTTP_STATUS=$(echo "$PATCH_RESPONSE" | tail -n1 | cut -d':' -f2)
+BODY=$(echo "$PATCH_RESPONSE" | sed '$d')
+
+# 12. Validate
+if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 204 ]; then
+    echo "SUCCESS: Fabric connection updated using Basic/Extension schema"
+else
+    echo "FAILURE: Fabric API returned HTTP $HTTP_STATUS"
+    echo "Response: $BODY"
+    exit 1
+fi
  
 # Debug payload (hide secret)
 echo "---------------- PAYLOAD DEBUG ----------------"
