@@ -3,7 +3,7 @@
 set -e
  
 # 1. Load the state from previous stages
-# We need TARGET_APPLICATION_ID (Client ID) and FINAL_OAUTH_SECRET (New Secret)
+# We need TARGET_APPLICATION_ID (The SPN Client ID) and FINAL_OAUTH_SECRET (The new secret)
 if [ -f db_env.sh ]; then
     . ./db_env.sh
 else
@@ -13,22 +13,21 @@ fi
  
 echo "-------------------------------------------------------"
 echo "Fabric Integration: Updating Connection for $TARGET_SPN_DISPLAY_NAME"
-echo "Target Client ID: $TARGET_APPLICATION_ID"
+echo "Target SPN Client ID: $TARGET_APPLICATION_ID"
 echo "-------------------------------------------------------"
  
-# 2. Authenticate to Azure to get a Fabric API Token
-# We use the Pipeline SPN (AZURE_CLIENT_ID) credentials from the Jenkins environment
-echo "Logging in to Azure..."
-az login --service-principal \
-    --username "$AZURE_CLIENT_ID" \
-    --password "$AZURE_CLIENT_SECRET" \
-    --tenant "$AZURE_TENANT_ID" \
-    --output none
+# 2. Check for active Azure Session
+# We rely on the service principal login from previous stages.
+if ! az account show > /dev/null 2>&1; then
+    echo "ERROR: No active Azure session found. Please ensure 'az login' ran successfully."
+    exit 1
+fi
  
 echo "Acquiring Fabric Access Token..."
-# NOTE: The resource scope here is specific to Fabric APIs
+# FIX 1: Use the correct Fabric API Resource URL
+# The resource must be 'https://api.fabric.microsoft.com/' (trailing slash is important)
 FABRIC_TOKEN=$(az account get-access-token \
-    --resource "https://api.fabric.microsoft.com/.default" \
+    --resource "https://api.fabric.microsoft.com/" \
     --query accessToken -o tsv)
  
 if [ -z "$FABRIC_TOKEN" ]; then
@@ -37,34 +36,36 @@ if [ -z "$FABRIC_TOKEN" ]; then
 fi
  
 # 3. Construct the Connection Name
-# logic: 'db-' + SPN name with spaces replaced by dashes
+# Logic: 'db-' + SPN name with spaces replaced by dashes (e.g., 'db-my-spn-name')
 CLEAN_NAME=$(echo "$TARGET_SPN_DISPLAY_NAME" | tr ' ' '-')
 FABRIC_CONN_NAME="db-$CLEAN_NAME"
  
-echo "Searching for Connection Name: $FABRIC_CONN_NAME"
+echo "Searching for Fabric Connection Name: $FABRIC_CONN_NAME"
  
-# 4. Find the Connection ID
-# We filter the list of connections to find the one matching our constructed name
+# 4. Find the Connection ID via Fabric API
+# We list all connections and filter for the one matching our display name.
 RESPONSE=$(curl -s -X GET \
   -H "Authorization: Bearer $FABRIC_TOKEN" \
   "https://api.fabric.microsoft.com/v1/connections")
  
-# Extract ID where displayName matches. Returns null if not found.
+# Extract the Fabric Connection ID (UUID)
 CONNECTION_ID=$(echo "$RESPONSE" | jq -r ".value[] | select(.displayName==\"$FABRIC_CONN_NAME\") | .id // empty")
  
 if [ -z "$CONNECTION_ID" ]; then
     echo "ERROR: Fabric Connection '$FABRIC_CONN_NAME' not found."
-    echo "Please ensure a connection exists in Fabric with this exact display name."
+    echo "Action: Verify a connection with this EXACT name exists in Fabric 'Manage Connections'."
     exit 1
 fi
  
-echo "Found Connection ID: $CONNECTION_ID"
+echo "Found Fabric Connection ID: $CONNECTION_ID"
  
 # 5. Patch the Connection with the NEW Secret
-# IMPORTANT: We must send the full credential details, not just the secret.
+# FIX 2: Send the FULL credential details.
+# Fabric requires Tenant ID + Client ID + Secret to validate the SPN.
 echo "Updating credentials..."
  
-# We use jq to construct the JSON payload safely to handle special characters in secrets
+# Use jq to safely construct the JSON payload
+# We map the bash variables to JSON fields
 PAYLOAD=$(jq -n \
                   --arg tenant "$AZURE_TENANT_ID" \
                   --arg client "$TARGET_APPLICATION_ID" \
@@ -81,15 +82,16 @@ PAYLOAD=$(jq -n \
                     }
                   }')
  
+# Execute the PATCH request
 PATCH_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X PATCH \
   -H "Authorization: Bearer $FABRIC_TOKEN" \
   -H "Content-Type: application/json" \
   -d "$PAYLOAD" \
   "https://api.fabric.microsoft.com/v1/connections/$CONNECTION_ID")
  
-# Extract HTTP status from the last line
+# 6. Validate the Result
 HTTP_STATUS=$(echo "$PATCH_RESPONSE" | tail -n1 | cut -d':' -f2)
-BODY=$(echo "$PATCH_RESPONSE" | sed '$d') # Remove the status line to get body
+BODY=$(echo "$PATCH_RESPONSE" | sed '$d') # Remove the status line to show the body
  
 if [ "$HTTP_STATUS" -eq 200 ]; then
     echo "SUCCESS: Microsoft Fabric connection updated successfully."
