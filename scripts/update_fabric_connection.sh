@@ -107,27 +107,27 @@ fi
 echo "Client Secret retrieved"
  
 # 9. Build CORRECT Fabric Payload — Databricks Client Credentials
+# Example of the correct payload for Fabric SPN Connection Update
 PAYLOAD=$(jq -n \
   --arg tenant "$AZURE_TENANT_ID" \
   --arg clientId "$CLIENT_ID" \
   --arg secret "$CLIENT_SECRET" \
 '{
-  credentialDetails: {
-    authenticationKind: "ServicePrincipal",
-    tenantId: $tenant,
-    clientId: $clientId,
-    clientSecret: $secret
+  "credentialDetails": {
+    "credentialType": "ServicePrincipal",
+    "credentials": "{\"clusterId\":\"$DATABRICKS_INTERNAL_ID\",\"clientId\":\"$TARGET_APPLICATION_ID\",\"tenantId\":\"$AZURE_TENANT_ID\",\"secret\":\"$FINAL_OAUTH_SECRET\"}",
+    "connectionMode": "Gateway", 
+    "privacyLevel": "Organizational",
+    "encryptionAlgorithm": "None"
   }
 }')
- 
-# 10. PATCH Fabric Connection
-echo "Updating Fabric connection credential..."
- 
-PATCH_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X PATCH \
-  -H "Authorization: Bearer $FABRIC_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "$PAYLOAD" \
-  "https://api.fabric.microsoft.com/v1/connections/$CONNECTION_ID")
+EOF
+)
+
+curl -X PATCH "https://api.fabric.microsoft.com/v1/connections/$CONNECTION_ID" \
+     -H "Authorization: Bearer $FABRIC_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d "$PAYLOAD"
  
 HTTP_STATUS=$(echo "$PATCH_RESPONSE" | tail -n1 | cut -d':' -f2)
 BODY=$(echo "$PATCH_RESPONSE" | sed '$d')
