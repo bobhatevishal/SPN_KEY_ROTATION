@@ -13,7 +13,7 @@ fi
  
 echo "-------------------------------------------------------"
 echo "Fabric Integration: Updating Connection for $TARGET_SPN_DISPLAY_NAME"
-echo "Target SPN Client ID: $TARGET_APPLICATION_ID"
+echo "Target SPN Client ID: $APP_ID"
 echo "-------------------------------------------------------"
  
 # 2. Check for active Azure Session
