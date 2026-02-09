@@ -115,10 +115,10 @@ echo "Client Secret retrieved successfully"
 echo "Building Fabric credential payload..."
  
 PAYLOAD=$(jq -n \
-  --arg tenant "$AZURE_TENANT_ID" \
+  --arg tenant "6fbff720-d89b-4675-b188-48491f24b460" \
   --arg clientId "$CLIENT_ID" \
   --arg secret "$CLIENT_SECRET" \
-  --arg workspace "$DATABRICKS_WORKSPACE_URL" \
+  --arg workspace "https://adb-7405609173671370.10.azuredatabricks.net" \
 '{
   "credentialDetails": {
     "useCallerCredentials": false,
