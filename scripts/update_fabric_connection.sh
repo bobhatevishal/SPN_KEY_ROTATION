@@ -138,8 +138,6 @@ PAYLOAD=$(jq -n \
     "privacyLevel": "Private"
   }
 }
- useCallerCredentials": false
-  }
 }')
  
 # Debug payload (hide secret)
