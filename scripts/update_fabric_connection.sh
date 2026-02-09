@@ -47,6 +47,8 @@ echo "Acquiring Fabric API Token..."
 FABRIC_TOKEN=$(az account get-access-token \
     --resource "https://api.fabric.microsoft.com/" \
     --query accessToken -o tsv)
+
+    echo "FABRIC_TOKEN"
  
 if [ -z "$FABRIC_TOKEN" ]; then
     echo "ERROR: Failed to acquire Fabric access token"
