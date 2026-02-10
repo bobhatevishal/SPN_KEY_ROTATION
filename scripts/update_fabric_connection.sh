@@ -78,7 +78,7 @@ echo "$CONNECTIONS" | jq -c '.value[]' | while read CONN; do
       --arg secret "$CLIENT_SECRET" \
       '{
         credentialDetails: {
-          credentialType: "ServicePrincipal",
+          credentialType: "DatabricksClientCredentials",
           tenantId: $tenant,
           clientId: $client,
           clientSecret: $secret,
