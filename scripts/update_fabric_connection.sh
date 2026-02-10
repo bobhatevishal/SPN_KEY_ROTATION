@@ -15,7 +15,7 @@ source "${DB_ENV_FILE}"
 
 # Validate required variables
 : "${AZURE_TENANT_ID:?db_env.sh must export AZURE_TENANT_ID}"
-: "${KEY_VAULT_NAME:?db_env.sh must export KEY_VAULT_NAME}"
+: "${KEYVAULT_NAME:?db_env.sh must export KEYVAULT_NAME}"
 : "${FABRIC_AUTH_CLIENT_ID:?db_env.sh must export FABRIC_AUTH_CLIENT_ID}"
 : "${FABRIC_AUTH_CLIENT_SECRET:?db_env.sh must export FABRIC_AUTH_CLIENT_SECRET}"
 : "${CONN_DISPLAY_NAME:=db-automation-spn}"
@@ -54,10 +54,10 @@ fi
 log "Successfully obtained Fabric Bearer token"
 
 # --- 2. Fetch credentials from Key Vault ---
-log "Fetching secrets from Key Vault '${KEY_VAULT_NAME}'"
+log "Fetching secrets from Key Vault '${KEYVAULT_NAME}'"
 
-CLIENT_ID=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "$ID_NAME" --query "value" -o tsv)
-CLIENT_SECRET=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "$SECRET_NAME" --query "value" -o tsv)
+CLIENT_ID=$(az keyvault secret show --vault-name "$KEYVAULT_NAME" --name "$ID_NAME" --query "value" -o tsv)
+CLIENT_SECRET=$(az keyvault secret show --vault-name "$KEYVAULT_NAME" --name "$SECRET_NAME" --query "value" -o tsv)
 
 if [ -z "$CLIENT_ID" ] || [ -z "$CLIENT_SECRET" ]; then
   err "Key Vault secrets are empty or missing"
