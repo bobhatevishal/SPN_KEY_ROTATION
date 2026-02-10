@@ -33,7 +33,6 @@ err() {
 # --- 1. Get Bearer token for Fabric via Azure CLI ---
 log "Acquiring Fabric API Token using current Azure identity..."
 
-# Leverages the existing 'az login' or Managed Identity session
 FABRIC_TOKEN=$(az account get-access-token \
     --resource "https://api.fabric.microsoft.com/" \
     --query accessToken -o tsv)
@@ -69,19 +68,22 @@ fi
 
 CONN_TYPE=$(echo "$list_conn_response" | jq -r --arg id "$TARGET_ID" '.value[] | select(.id==$id) | .connectivityType')
 
-# --- 4. Build the Payload (Basic/Extension Schema) ---
+# --- 4. Build the Payload (Corrected Object Structure) ---
 log "Constructing payload for Basic/Extension type..."
 
-# Extension/Power Query types require credentials to be a stringified JSON object
-INNER_CREDS=$(jq -nc \
+# Create the inner credentials object structure
+# Note: We use jq -n to build a clean JSON object first
+INNER_CREDS=$(jq -n \
   --arg user "$CLIENT_ID" \
   --arg pass "$CLIENT_SECRET" \
   '{"credentialData": [{"name": "username", "value": $user}, {"name": "password", "value": $pass}]}')
 
+# Build the final payload
+# IMPORTANT: We use --argjson (not --arg) for 'creds' to ensure it is treated as an OBJECT, not a String
 PAYLOAD=$(jq -n \
   --arg name "$CONN_DISPLAY_NAME" \
   --arg connType "$CONN_TYPE" \
-  --arg creds "$INNER_CREDS" \
+  --argjson creds "$INNER_CREDS" \
   '{
     connectionDetails: {
       host: "adb-7405609173671370.10.azuredatabricks.net",
