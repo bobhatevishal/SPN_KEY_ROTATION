@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
  
-# Source environment (Ensure CLIENT_ID and FINAL_OAUTH_SECRET are present)
+# Source environment (Ensure$ID_NAME and FINAL_OAUTH_SECRET are present)
 source ./db_env.sh
  
 # Fabric configuration
@@ -17,8 +17,8 @@ DATABRICKS_HTTP_PATH="${DATABRICKS_HTTP_PATH:-/sql/1.0/warehouses/559747c78f7124
 echo "=== CREATE Fabric Connection: ${CONNECTION_NAME} ==="
  
 # Validation
-if [[ -z "$FINAL_OAUTH_SECRET" || -z "$CLIENT_ID" ]]; then
-    echo "ERROR: CLIENT_ID or FINAL_OAUTH_SECRET is missing."
+if [[ -z "$FINAL_OAUTH_SECRET" || -z "$ID_NAME" ]]; then
+    echo "ERROR:$ID_NAME or FINAL_OAUTH_SECRET is missing."
     exit 1
 fi
  
@@ -32,7 +32,7 @@ CREATE_BODY=$(jq -n \
     --arg name "$CONNECTION_NAME" \
     --arg host "$DATABRICKS_HOST" \
     --arg path "$DATABRICKS_HTTP_PATH" \
-    --arg cid "$CLIENT_ID" \
+    --arg cid "$ID_NAME" \
     --arg secret "$FINAL_OAUTH_SECRET" \
     '{
         name: $name,
