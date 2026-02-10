@@ -16,11 +16,9 @@ source "${DB_ENV_FILE}"
 # Validate required variables
 : "${AZURE_TENANT_ID:?db_env.sh must export AZURE_TENANT_ID}"
 : "${KEYVAULT_NAME:?db_env.sh must export KEYVAULT_NAME}"
-: "${FABRIC_AUTH_CLIENT_ID:?db_env.sh must export FABRIC_AUTH_CLIENT_ID}"
-: "${FABRIC_AUTH_CLIENT_SECRET:?db_env.sh must export FABRIC_AUTH_CLIENT_SECRET}"
 : "${CONN_DISPLAY_NAME:=db-automation-spn}"
-: "${KID_CLIENT_ID:=db-automation-spn-id}"
-: "${KID_CLIENT_SECRET:=db-automation-spn-secret}"
+: "${ID_NAME:=db-automation-spn-id}"
+: "${SECRET_NAME:=db-automation-spn-secret}"
 : "${FABRIC_API_BASE:=https://api.fabric.microsoft.com/v1}"
 
 log() {
@@ -32,35 +30,28 @@ err() {
   exit 1
 }
 
-# --- 1. Get Bearer token for Fabric (SPN) ---
-log "Requesting Fabric Bearer token..."
+# --- 1. Get Bearer token for Fabric via Azure CLI ---
+log "Acquiring Fabric API Token using current Azure identity..."
 
-TOKEN_RESPONSE=$(curl -s -X POST \
-  "https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=client_credentials" \
-  -d "client_id=${FABRIC_AUTH_CLIENT_ID}" \
-  -d "client_secret=${FABRIC_AUTH_CLIENT_SECRET}" \
-  -d "scope=https://api.fabric.microsoft.com/.default" \
-)
-
-FABRIC_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.access_token')
+# Leverages the existing 'az login' or Managed Identity session
+FABRIC_TOKEN=$(az account get-access-token \
+    --resource "https://api.fabric.microsoft.com/" \
+    --query accessToken -o tsv)
 
 if [ -z "$FABRIC_TOKEN" ] || [ "$FABRIC_TOKEN" = "null" ]; then
-  log "Raw token response: $TOKEN_RESPONSE"
-  err "Failed to get Fabric Bearer token"
+  err "Failed to acquire Fabric token. Ensure 'az login' or Managed Identity is active."
 fi
 
 log "Successfully obtained Fabric Bearer token"
 
-# --- 2. Fetch credentials from Key Vault ---
-log "Fetching secrets from Key Vault '${KEYVAULT_NAME}'"
+# --- 2. Fetch target credentials from Key Vault ---
+log "Fetching target SPN secrets from Key Vault '${KEYVAULT_NAME}'"
 
-CLIENT_ID=$(az keyvault secret show --vault-name "$KEYVAULT_NAME" --name "$KID_CLIENT_ID" --query "value" -o tsv)
+CLIENT_ID=$(az keyvault secret show --vault-name "$KEYVAULT_NAME" --name "$ID_NAME" --query "value" -o tsv)
 CLIENT_SECRET=$(az keyvault secret show --vault-name "$KEYVAULT_NAME" --name "$KID_CLIENT_SECRET" --query "value" -o tsv)
 
 if [ -z "$CLIENT_ID" ] || [ -z "$CLIENT_SECRET" ]; then
-  err "Key Vault secrets are empty or missing"
+  err "Target Client ID or Secret not found in Key Vault"
 fi
 
 # --- 3. Find Fabric connection by displayName ---
@@ -78,12 +69,10 @@ fi
 
 CONN_TYPE=$(echo "$list_conn_response" | jq -r --arg id "$TARGET_ID" '.value[] | select(.id==$id) | .connectivityType')
 
-log "Found Fabric connection: id=${TARGET_ID}, type=${CONN_TYPE}"
+# --- 4. Build the Payload (Basic/Extension Schema) ---
+log "Constructing payload for Basic/Extension type..."
 
-# --- 4. Build the Payload (The Out-of-the-box Fix) ---
-# Your dump showed 'Basic' type with stringified 'credentialData'
-log "Constructing Basic/Extension payload..."
-
+# Extension/Power Query types require credentials to be a stringified JSON object
 INNER_CREDS=$(jq -nc \
   --arg user "$CLIENT_ID" \
   --arg pass "$CLIENT_SECRET" \
@@ -112,7 +101,7 @@ PAYLOAD=$(jq -n \
   }' | jq -c)
 
 # --- 5. PATCH Fabric connection ---
-log "PATCHing Fabric connection at ${FABRIC_API_BASE}/connections/${TARGET_ID}"
+log "Updating Fabric connection..."
 
 HTTP_RESPONSE=$(curl -s -w "%{http_code}" \
   -X PATCH \
@@ -126,10 +115,10 @@ if [[ "$HTTP_RESPONSE" != "200" && "$HTTP_RESPONSE" != "204" ]]; then
   resp=$(cat /tmp/fabric_resp.json)
   log "Fabric API returned HTTP $HTTP_RESPONSE"
   log "Response body: $resp"
-  err "Failed to update Fabric connection credentials"
+  err "Failed to update Fabric connection"
 fi
 
 log "-------------------------------------------------------"
-log " SUCCESS: Fabric connection rotated successfully"
+log " SUCCESS: Fabric connection rotated successfully."
 log " Connection ID: ${TARGET_ID}"
 log "-------------------------------------------------------"
