@@ -91,7 +91,7 @@ pipeline {
                           curl -s "https://api.powerbi.com/v1.0/myorg/groups/${env.FABRIC_WORKSPACE_ID}/connections" \
                             -H "Authorization: Bearer \$FABRIC_ACCESS_TOKEN" \
                             -H "Content-Type: application/json" | \
-                            jq -r --arg name "${currentSPN}-fabric-connection" '.value[]? | select(.name == \$name) | .id'
+                            jq -r --arg name "db-${currentSPN}" '.value[]? | select(.name == \$name) | .id'
                         """,
                         returnStdout: true
                       ).trim()
