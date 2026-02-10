@@ -1,111 +1,135 @@
 #!/bin/bash
-set -e
- 
-echo "=============================================="
-echo " Microsoft Fabric - Databricks Secret Rotation"
-echo "=============================================="
- 
-# Load environment variables from previous pipeline stage
-source ./db_env.sh
- 
-# Required variables:
-# TENANT_ID
-# CLIENT_ID            (Databricks SPN Client ID)
-# CLIENT_SECRET        (New Databricks Secret)
-# FABRIC_CLIENT_ID     (Fabric Automation SPN)
-# FABRIC_CLIENT_SECRET (Fabric SPN Secret)
- 
-echo "Acquiring Fabric API Token..."
- 
-FABRIC_RESPONSE=$(curl -s -X POST \
-"https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token" \
--H "Content-Type: application/x-www-form-urlencoded" \
--d "grant_type=client_credentials" \
--d "client_id=${FABRIC_CLIENT_ID}" \
--d "client_secret=${FABRIC_CLIENT_SECRET}" \
--d "scope=https://api.fabric.microsoft.com/.default")
- 
-# Debug output if token fails
-if echo "$FABRIC_RESPONSE" | jq -e '.access_token' > /dev/null; then
-  FABRIC_TOKEN=$(echo "$FABRIC_RESPONSE" | jq -r '.access_token')
-  echo "✅ Fabric API Token acquired"
-else
-  echo "❌ Failed to acquire Fabric API token"
-  echo "Azure Response:"
-  echo "$FABRIC_RESPONSE"
+
+set -euo pipefail
+
+# === Load environment from db_env.sh ===
+: "${DB_ENV_FILE:=./db_env.sh}"
+
+if [ ! -f "${DB_ENV_FILE}" ]; then
+  echo "db_env.sh not found at ${DB_ENV_FILE}" >&2
   exit 1
 fi
- 
-# Fetch Fabric connections
-echo "Fetching Fabric Connections..."
- 
-CONNECTIONS=$(curl -s \
--H "Authorization: Bearer ${FABRIC_TOKEN}" \
-"https://api.fabric.microsoft.com/v1/connections")
- 
-# Validate response structure
-if ! echo "$CONNECTIONS" | jq -e '.value' > /dev/null; then
-  echo "❌ Failed to retrieve Fabric connections"
-  echo "$CONNECTIONS"
+
+# shellcheck source=./db_env.sh
+source "${DB_ENV_FILE}"
+
+# Validate required variables
+: "${AZURE_TENANT_ID:?db_env.sh must export AZURE_TENANT_ID}"
+: "${KEY_VAULT_NAME:?db_env.sh must export KEY_VAULT_NAME}"
+: "${FABRIC_AUTH_CLIENT_ID:?db_env.sh must export FABRIC_AUTH_CLIENT_ID}"
+: "${FABRIC_AUTH_CLIENT_SECRET:?db_env.sh must export FABRIC_AUTH_CLIENT_SECRET}"
+: "${CONN_DISPLAY_NAME:=db-automation-spn}"
+: "${KID_CLIENT_ID:=db-automation-spn-id}"
+: "${KID_CLIENT_SECRET:=db-automation-spn-secret}"
+: "${FABRIC_API_BASE:=https://api.fabric.microsoft.com/v1}"
+
+log() {
+  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"
+}
+
+err() {
+  log "ERROR! $*" >&2
   exit 1
+}
+
+# --- 1. Get Bearer token for Fabric (SPN) ---
+log "Requesting Fabric Bearer token..."
+
+TOKEN_RESPONSE=$(curl -s -X POST \
+  "https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=client_credentials" \
+  -d "client_id=${FABRIC_AUTH_CLIENT_ID}" \
+  -d "client_secret=${FABRIC_AUTH_CLIENT_SECRET}" \
+  -d "scope=https://api.fabric.microsoft.com/.default" \
+)
+
+FABRIC_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.access_token')
+
+if [ -z "$FABRIC_TOKEN" ] || [ "$FABRIC_TOKEN" = "null" ]; then
+  log "Raw token response: $TOKEN_RESPONSE"
+  err "Failed to get Fabric Bearer token"
 fi
- 
-COUNT=$(echo "$CONNECTIONS" | jq '.value | length')
-echo "✅ Found $COUNT total connections"
- 
-# Loop through Databricks connections only
-echo "$CONNECTIONS" | jq -c '.value[]' | while read CONN; do
- 
-  CONN_ID=$(echo "$CONN" | jq -r '.id')
-  CONN_NAME=$(echo "$CONN" | jq -r '.displayName')
-  PROVIDER=$(echo "$CONN" | jq -r '.provider')
- 
-  # Normalize provider check
-  PROVIDER_LOWER=$(echo "$PROVIDER" | tr '[:upper:]' '[:lower:]')
- 
-  if [[ "$PROVIDER_LOWER" == *"databricks"* ]]; then
- 
-    echo "----------------------------------------------"
-    echo "🔁 Rotating Secret for Databricks Connection"
-    echo "Name: $CONN_NAME"
-    echo "ID: $CONN_ID"
-    echo "Provider: $PROVIDER"
- 
-    # Build PATCH payload
-    UPDATE_PAYLOAD=$(jq -n \
-      --arg tenant "$TENANT_ID" \
-      --arg client "$CLIENT_ID" \
-      --arg secret "$CLIENT_SECRET" \
-      '{
-        credentialDetails: {
-          credentialType: "DatabricksClientCredentials",
-          tenantId: $tenant,
-          clientId: $client,
-          clientSecret: $secret,
-          scope: "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d/.default"
-        }
-      }')
- 
-    echo "Updating credentials..."
- 
-    RESPONSE=$(curl -s -X PATCH \
-      -H "Authorization: Bearer ${FABRIC_TOKEN}" \
-      -H "Content-Type: application/json" \
-      -d "$UPDATE_PAYLOAD" \
-      "https://api.fabric.microsoft.com/v1/connections/${CONN_ID}")
- 
-    # Validate PATCH result
-    if echo "$RESPONSE" | jq -e '.id' > /dev/null; then
-      echo "✅ Successfully rotated credentials for: $CONN_NAME"
-    else
-      echo "❌ Failed to update connection: $CONN_NAME"
-      echo "Response:"
-      echo "$RESPONSE"
-    fi
- 
-  fi
-done
- 
-echo "=============================================="
-echo " ✅ Secret Rotation Completed Successfully"
-echo "=============================================="
+
+log "Successfully obtained Fabric Bearer token"
+
+# --- 2. Fetch credentials from Key Vault ---
+log "Fetching secrets from Key Vault '${KEY_VAULT_NAME}'"
+
+CLIENT_ID=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "$KID_CLIENT_ID" --query "value" -o tsv)
+CLIENT_SECRET=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "$KID_CLIENT_SECRET" --query "value" -o tsv)
+
+if [ -z "$CLIENT_ID" ] || [ -z "$CLIENT_SECRET" ]; then
+  err "Key Vault secrets are empty or missing"
+fi
+
+# --- 3. Find Fabric connection by displayName ---
+list_conn_response=$(curl -s \
+  -H "Authorization: Bearer ${FABRIC_TOKEN}" \
+  "${FABRIC_API_BASE}/connections")
+
+TARGET_ID=$(echo "$list_conn_response" | jq -r \
+  --arg name "$CONN_DISPLAY_NAME" \
+  '.value[] | select(.displayName==$name) | .id')
+
+if [ -z "$TARGET_ID" ] || [ "$TARGET_ID" = "null" ]; then
+  err "Connection '${CONN_DISPLAY_NAME}' not found in Fabric"
+fi
+
+CONN_TYPE=$(echo "$list_conn_response" | jq -r --arg id "$TARGET_ID" '.value[] | select(.id==$id) | .connectivityType')
+
+log "Found Fabric connection: id=${TARGET_ID}, type=${CONN_TYPE}"
+
+# --- 4. Build the Payload (The Out-of-the-box Fix) ---
+# Your dump showed 'Basic' type with stringified 'credentialData'
+log "Constructing Basic/Extension payload..."
+
+INNER_CREDS=$(jq -nc \
+  --arg user "$CLIENT_ID" \
+  --arg pass "$CLIENT_SECRET" \
+  '{"credentialData": [{"name": "username", "value": $user}, {"name": "password", "value": $pass}]}')
+
+PAYLOAD=$(jq -n \
+  --arg name "$CONN_DISPLAY_NAME" \
+  --arg connType "$CONN_TYPE" \
+  --arg creds "$INNER_CREDS" \
+  '{
+    connectionDetails: {
+      host: "adb-7405609173671370.10.azuredatabricks.net",
+      httpPath: "/sql/1.0/warehouses/559747c78f71249c"
+    },
+    connectivityType: $connType,
+    gatewayType: "TenantCloud",
+    displayName: $name,
+    credentialDetails: {
+      credentialType: "Basic",
+      credentials: $creds,
+      encryptedConnection: "Any",
+      encryptionAlgorithm: "NONE",
+      privacyLevel: "Organizational",
+      useCallerCredentials: false
+    }
+  }' | jq -c)
+
+# --- 5. PATCH Fabric connection ---
+log "PATCHing Fabric connection at ${FABRIC_API_BASE}/connections/${TARGET_ID}"
+
+HTTP_RESPONSE=$(curl -s -w "%{http_code}" \
+  -X PATCH \
+  -H "Authorization: Bearer ${FABRIC_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d "${PAYLOAD}" \
+  "${FABRIC_API_BASE}/connections/${TARGET_ID}" \
+  -o /tmp/fabric_resp.json)
+
+if [[ "$HTTP_RESPONSE" != "200" && "$HTTP_RESPONSE" != "204" ]]; then
+  resp=$(cat /tmp/fabric_resp.json)
+  log "Fabric API returned HTTP $HTTP_RESPONSE"
+  log "Response body: $resp"
+  err "Failed to update Fabric connection credentials"
+fi
+
+log "-------------------------------------------------------"
+log " SUCCESS: Fabric connection rotated successfully"
+log " Connection ID: ${TARGET_ID}"
+log "-------------------------------------------------------"
