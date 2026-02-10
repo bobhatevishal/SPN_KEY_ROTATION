@@ -1,73 +1,135 @@
 #!/bin/bash
+
 set -euo pipefail
 
-# 1. Load Environment (Unchanged)
+# === Load environment from db_env.sh ===
 : "${DB_ENV_FILE:=./db_env.sh}"
-if [ ! -f "${DB_ENV_FILE}" ]; then echo "db_env.sh not found" >&2; exit 1; fi
+
+if [ ! -f "${DB_ENV_FILE}" ]; then
+  echo "db_env.sh not found at ${DB_ENV_FILE}" >&2
+  exit 1
+fi
+
+# shellcheck source=./db_env.sh
 source "${DB_ENV_FILE}"
 
-# Use the NEW Display Name for the new connection
-: "${NEW_CONN_DISPLAY_NAME:=Your_New_Connection_Name}" 
+# Validate required variables
+: "${AZURE_TENANT_ID:?db_env.sh must export AZURE_TENANT_ID}"
+: "${KEY_VAULT_NAME:?db_env.sh must export KEY_VAULT_NAME}"
+: "${FABRIC_AUTH_CLIENT_ID:?db_env.sh must export FABRIC_AUTH_CLIENT_ID}"
+: "${FABRIC_AUTH_CLIENT_SECRET:?db_env.sh must export FABRIC_AUTH_CLIENT_SECRET}"
+: "${CONN_DISPLAY_NAME:=db-automation-spn}"
+: "${ID_NAME:=db-automation-spn-id}"
+: "${SECRET_NAME:=db-automation-spn-secret}"
 : "${FABRIC_API_BASE:=https://api.fabric.microsoft.com/v1}"
 
-log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"; }
-err() { log "ERROR! $*" >&2; exit 1; }
+log() {
+  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"
+}
 
-# 2. Get Token (Resource must match the API URL)
-log "Acquiring Fabric Token..."
-FABRIC_TOKEN=$(az account get-access-token --resource "https://api.fabric.microsoft.com/" --query accessToken -o tsv)
+err() {
+  log "ERROR! $*" >&2
+  exit 1
+}
 
-# 3. Fetch Secrets from Key Vault
-log "Fetching secrets for SPN..."
-CLIENT_ID=$(az keyvault secret show --vault-name "$KEYVAULT_NAME" --name "$ID_NAME" --query "value" -o tsv)
-CLIENT_SECRET=$(az keyvault secret show --vault-name "$KEYVAULT_NAME" --name "$SECRET_NAME" --query "value" -o tsv)
+# --- 1. Get Bearer token for Fabric (SPN) ---
+log "Requesting Fabric Bearer token..."
 
-# 4. Construct Payload for CREATION
-# We use 'ServicePrincipal' instead of 'Basic' to match your SPN credentials
-log "Constructing payload for NEW connection: $NEW_CONN_DISPLAY_NAME"
+TOKEN_RESPONSE=$(curl -s -X POST \
+  "https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=client_credentials" \
+  -d "client_id=${FABRIC_AUTH_CLIENT_ID}" \
+  -d "client_secret=${FABRIC_AUTH_CLIENT_SECRET}" \
+  -d "scope=https://api.fabric.microsoft.com/.default" \
+)
 
-INNER_CREDS=$(jq -n \
-  --arg tid "$AZURE_TENANT_ID" \
-  --arg cid "$CLIENT_ID" \
-  --arg sec "$CLIENT_SECRET" \
-  '{"credentialData": [{"name": "tenantId", "value": $tid}, {"name": "clientId", "value": $cid}, {"name": "secret", "value": $sec}]}')
+FABRIC_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.access_token')
+
+if [ -z "$FABRIC_TOKEN" ] || [ "$FABRIC_TOKEN" = "null" ]; then
+  log "Raw token response: $TOKEN_RESPONSE"
+  err "Failed to get Fabric Bearer token"
+fi
+
+log "Successfully obtained Fabric Bearer token"
+
+# --- 2. Fetch credentials from Key Vault ---
+log "Fetching secrets from Key Vault '${KEY_VAULT_NAME}'"
+
+CLIENT_ID=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "$ID_NAME" --query "value" -o tsv)
+CLIENT_SECRET=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "$SECRET_NAME" --query "value" -o tsv)
+
+if [ -z "$CLIENT_ID" ] || [ -z "$CLIENT_SECRET" ]; then
+  err "Key Vault secrets are empty or missing"
+fi
+
+# --- 3. Find Fabric connection by displayName ---
+list_conn_response=$(curl -s \
+  -H "Authorization: Bearer ${FABRIC_TOKEN}" \
+  "${FABRIC_API_BASE}/connections")
+
+TARGET_ID=$(echo "$list_conn_response" | jq -r \
+  --arg name "$CONN_DISPLAY_NAME" \
+  '.value[] | select(.displayName==$name) | .id')
+
+if [ -z "$TARGET_ID" ] || [ "$TARGET_ID" = "null" ]; then
+  err "Connection '${CONN_DISPLAY_NAME}' not found in Fabric"
+fi
+
+CONN_TYPE=$(echo "$list_conn_response" | jq -r --arg id "$TARGET_ID" '.value[] | select(.id==$id) | .connectivityType')
+
+log "Found Fabric connection: id=${TARGET_ID}, type=${CONN_TYPE}"
+
+# --- 4. Build the Payload (The Out-of-the-box Fix) ---
+# Your dump showed 'Basic' type with stringified 'credentialData'
+log "Constructing Basic/Extension payload..."
+
+INNER_CREDS=$(jq -nc \
+  --arg user "$CLIENT_ID" \
+  --arg pass "$CLIENT_SECRET" \
+  '{"credentialData": [{"name": "username", "value": $user}, {"name": "password", "value": $pass}]}')
 
 PAYLOAD=$(jq -n \
-  --arg name "$NEW_CONN_DISPLAY_NAME" \
-  --argjson creds "$INNER_CREDS" \
+  --arg name "$CONN_DISPLAY_NAME" \
+  --arg connType "$CONN_TYPE" \
+  --arg creds "$INNER_CREDS" \
   '{
     connectionDetails: {
       host: "adb-7405609173671370.10.azuredatabricks.net",
       httpPath: "/sql/1.0/warehouses/559747c78f71249c"
     },
-    connectivityType: "Odbc", 
+    connectivityType: $connType,
     gatewayType: "TenantCloud",
     displayName: $name,
     credentialDetails: {
       credentialType: "Basic",
       credentials: $creds,
-      encryptedConnection: "Encrypted",
-      encryptionAlgorithm: "None",
-      privacyLevel: "Organizational"
+      encryptedConnection: "Any",
+      encryptionAlgorithm: "NONE",
+      privacyLevel: "Organizational",
+      useCallerCredentials: false
     }
   }' | jq -c)
 
-# 5. POST to create the connection (Note the URL change: no ID at the end)
-log "Creating new Fabric connection..."
+# --- 5. PATCH Fabric connection ---
+log "PATCHing Fabric connection at ${FABRIC_API_BASE}/connections/${TARGET_ID}"
 
 HTTP_RESPONSE=$(curl -s -w "%{http_code}" \
-  -X POST \
+  -X PATCH \
   -H "Authorization: Bearer ${FABRIC_TOKEN}" \
   -H "Content-Type: application/json" \
   -d "${PAYLOAD}" \
-  "${FABRIC_API_BASE}/connections" \
-  -o /tmp/fabric_create_resp.json)
+  "${FABRIC_API_BASE}/connections/${TARGET_ID}" \
+  -o /tmp/fabric_resp.json)
 
-if [[ "$HTTP_RESPONSE" != "201" && "$HTTP_RESPONSE" != "200" ]]; then
+if [[ "$HTTP_RESPONSE" != "200" && "$HTTP_RESPONSE" != "204" ]]; then
+  resp=$(cat /tmp/fabric_resp.json)
   log "Fabric API returned HTTP $HTTP_RESPONSE"
-  cat /tmp/fabric_create_resp.json
-  err "Failed to create connection"
+  log "Response body: $resp"
+  err "Failed to update Fabric connection credentials"
 fi
 
-NEW_ID=$(jq -r '.id' /tmp/fabric_create_resp.json)
-log "SUCCESS: Created Connection ID: ${NEW_ID}"
+log "-------------------------------------------------------"
+log " SUCCESS: Fabric connection rotated successfully"
+log " Connection ID: ${TARGET_ID}"
+log "-------------------------------------------------------"
