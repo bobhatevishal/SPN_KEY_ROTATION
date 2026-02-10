@@ -48,7 +48,7 @@ log "Successfully obtained Fabric Bearer token"
 log "Fetching target SPN secrets from Key Vault '${KEYVAULT_NAME}'"
 
 CLIENT_ID=$(az keyvault secret show --vault-name "$KEYVAULT_NAME" --name "$ID_NAME" --query "value" -o tsv)
-CLIENT_SECRET=$(az keyvault secret show --vault-name "$KEYVAULT_NAME" --name "$KID_CLIENT_SECRET" --query "value" -o tsv)
+CLIENT_SECRET=$(az keyvault secret show --vault-name "$KEYVAULT_NAME" --name "$SECRET_NAME" --query "value" -o tsv)
 
 if [ -z "$CLIENT_ID" ] || [ -z "$CLIENT_SECRET" ]; then
   err "Target Client ID or Secret not found in Key Vault"
