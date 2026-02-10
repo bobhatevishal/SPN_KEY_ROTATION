@@ -59,3 +59,4 @@ echo "-------------------------------------------------------"
 echo "Rotation Complete: Only the latest secret is active."
 echo "export SECRET_NAME=$SECRET_NAME" >> db_env.sh
 echo "export ID_NAME=$ID_NAME" >> db_env.sh
+echo "export KEYVAULT_NAME=$KEYVAULT_NAME" >> db_env.sh
