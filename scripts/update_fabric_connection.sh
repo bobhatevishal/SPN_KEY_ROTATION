@@ -39,8 +39,8 @@ TOKEN_RESPONSE=$(curl -s -X POST \
   "https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "grant_type=client_credentials" \
-  -d "client_id=${FABRIC_AUTH_CLIENT_ID}" \
-  -d "client_secret=${FABRIC_AUTH_CLIENT_SECRET}" \
+  / -d "client_id=${FABRIC_AUTH_CLIENT_ID}" \
+  / -d "client_secret=${FABRIC_AUTH_CLIENT_SECRET}" \
   -d "scope=https://api.fabric.microsoft.com/.default" \
 )
 
