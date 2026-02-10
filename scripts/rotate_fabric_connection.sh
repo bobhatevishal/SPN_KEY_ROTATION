@@ -7,8 +7,7 @@ source ./db_env.sh
 # Fabric configuration
 FABRIC_WORKSPACE_ID="${FABRIC_WORKSPACE_ID:-782d76e6-7830-4038-8613-894916a67b22}"
 FABRIC_ACCESS_TOKEN="${FABRIC_ACCESS_TOKEN:-$(az account get-access-token --resource 'https://analysis.windows.net/powerbi/api' --query accessToken -o tsv)}"
-CONNECTION_NAME="db-${TARGET_SPN_DISPLAY_NAME}"
-BASE_URL="https://api.powerbi.com/v1.0/myorg"
+BASE_URL="https://api.fabric.microsoft.com/v1/workspaces"
 
 echo "=== ROTATE Fabric Connection: ${CONNECTION_NAME} ==="
 
