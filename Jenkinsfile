@@ -6,14 +6,19 @@ pipeline {
   }
 
   environment {
+    // Azure & Databricks Config
     DATABRICKS_HOST       = 'https://accounts.azuredatabricks.net'
     KEYVAULT_NAME         = credentials('keyvault-name')
     ACCOUNT_ID            = credentials('databricks-account-id')
     
+    // Service Principal for Jenkins execution
     AZURE_CLIENT_ID       = credentials('azure-client-id')
     AZURE_CLIENT_SECRET   = credentials('azure-client-secret')
     AZURE_TENANT_ID       = credentials('azure-tenant-id')
     AZURE_SUBSCRIPTION_ID = credentials('azure-subscription-id')
+
+    // Fabric Configuration (Update this ID!)
+    FABRIC_WORKSPACE_ID   = 'your-workspace-id-goes-here' 
   }
 
   stages {
@@ -74,10 +79,33 @@ pipeline {
                       echo "Secret validated. Updating Key Vault..."
                       sh './scripts/store_keyvault.sh'
 
-                      // 4. UPDATE MICROSOFT FABRIC (Consumer Update)
-                      // This runs only if Key Vault update succeeded
+                      // 4. UPDATE MICROSOFT FABRIC (Conditional Sync)
                       echo "Key Vault updated. Syncing to Microsoft Fabric..."
-                      sh './scripts/update_fabric_connection.sh'
+                      
+                      // Check if connection exists via API
+                      def connectionCheck = sh(
+                        script: """
+                          export FABRIC_ACCESS_TOKEN=\$(az account get-access-token --resource "https://analysis.windows.net/powerbi/api" --query accessToken -o tsv)
+                          
+                          # Query Fabric API for the connection name
+                          curl -s "https://api.powerbi.com/v1.0/myorg/groups/${env.FABRIC_WORKSPACE_ID}/connections" \
+                            -H "Authorization: Bearer \$FABRIC_ACCESS_TOKEN" \
+                            -H "Content-Type: application/json" | \
+                            jq -r --arg name "${currentSPN}-fabric-connection" '.value[]? | select(.name == \$name) | .id'
+                        """,
+                        returnStdout: true
+                      ).trim()
+
+                      // 4a. If Exists -> ROTATE
+                      if (connectionCheck && connectionCheck != "null" && connectionCheck != "") {
+                        echo "Connection exists (ID: ${connectionCheck}). Running ROTATION script..."
+                        sh "./scripts/rotate_fabric_connection.sh"
+                      } 
+                      // 4b. If Not Exists -> CREATE
+                      else {
+                        echo "Connection does not exist. Running CREATION script..."
+                        sh "./scripts/create_fabric_connection.sh"
+                      }
                   }
                 }
               } catch (Exception e) {
@@ -92,7 +120,8 @@ pipeline {
   }
   post {
     always {
-      sh 'cat db_env.sh'
+      // Debug output before cleanup
+      sh 'cat db_env.sh || true'
       sh 'rm -f db_env.sh'
     }
   }
