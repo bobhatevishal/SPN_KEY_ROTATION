@@ -65,11 +65,11 @@ fab auth login \
 
 # Select Fabric workspace
 echo "Selecting Fabric Workspace..."
-fabric workspace select "$FABRIC_WORKSPACE_ID"
+fab workspace select "$FABRIC_WORKSPACE_ID"
 
 # Fetch Fabric connections
 echo "Fetching Fabric Connections from Workspace..."
-CONNECTION_LIST=$(fabric connection list --output json || echo "[]")
+CONNECTION_LIST=$(fab connection list --output json || echo "[]")
 
 if [ -z "$CONNECTION_LIST" ] || [ "$CONNECTION_LIST" == "[]" ]; then
   echo "⚠️ No Fabric connections found. Skipping update."
