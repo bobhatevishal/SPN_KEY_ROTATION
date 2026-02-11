@@ -8,7 +8,7 @@ err() { log "ERROR: $*" >&2; exit 1; }
 source ./db_env.sh
 
 log "Acquiring Fabric Token..."
-FABRIC_TOKEN=$(az account get-access-token --resource "https://api.fabric.microsoft.com/" --query accessToken -o tsv)
+FABRIC_TOKEN=$(az account get-access-token --resource "https://api.fabric.microsoft.com" --scope "https://api.fabric.microsoft.com/.default" --query accessToken -o tsv)
 
 # === 2. Get Credentials from KeyVault ===
 # These are the *freshly rotated* secrets for the SPN we are creating the connection for
