@@ -79,7 +79,7 @@ pipeline {
                         script: """
                             # Fabric API endpoint + correct token scope
                             export FABRIC_ACCESS_TOKEN=\$(az account get-access-token --resource 'https://api.fabric.microsoft.com' --query accessToken -o tsv)
-                            curl -s "https://api.fabric.microsoft.com/v1/workspaces/${FABRIC_WORKSPACE_ID}/connections?\$filter=displayN… eq '${TARGET_SPN_DISPLAY_NAME}-fabric-connection'" \\
+                            curl -s "https://api.fabric.microsoft.com/v1/workspaces/${FABRIC_WORKSPACE_ID}/connections?\$filter=displayName%20eq%20'db-${TARGET_SPN_DISPLAY_NAME}'" \\
                                 -H "Authorization: Bearer \$FABRIC_ACCESS_TOKEN" \\
                                 -H "Content-Type: application/json" | \\
                                 jq -r '.value[0].id // empty'
