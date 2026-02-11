@@ -57,7 +57,7 @@ echo "✅ Secret validated from Key Vault runtime cache"
 
 # Login to Microsoft Fabric using SPN
 echo "Logging into Microsoft Fabric using SPN..."
-fabric auth login \
+fab auth login \
   --service-principal \
   --client-id "$AZURE_CLIENT_ID" \
   --client-secret "$AZURE_CLIENT_SECRET" \
