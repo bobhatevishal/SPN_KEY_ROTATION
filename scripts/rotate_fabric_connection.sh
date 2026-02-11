@@ -12,7 +12,7 @@ FABRIC_TOKEN=$(az account get-access-token --resource "https://api.fabric.micros
 # === 1. Find Existing Connection ID ===
 log "Searching for connection: $CONN_DISPLAY_NAME"
 # Use URL Encoding %20 for spaces in the filter
-SEARCH_URL="https://api.fabric.microsoft.com/v1/connections?\$filter=displayName%20eq%20'${CONN_DISPLAY_NAME}'"
+SEARCH_URL="https://api.fabric.microsoft.com/v1/connections?\$filter=displayName%20eq%20'${TARGET_SPN_DISPLAY_NAME}'"
 CONNECTION_ID=$(curl -s -H "Authorization: Bearer $FABRIC_TOKEN" "$SEARCH_URL" | jq -r '.value[0].id // empty')
 
 if [ -z "$CONNECTION_ID" ]; then
