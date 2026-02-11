@@ -106,8 +106,8 @@ cat <<EOF > fabric_connection.json
     "tenantId": "$AZURE_TENANT_ID"
   },
   "connectionDetails": {
-    "workspaceUrl": "$DATABRICKS_HOST",
-    "httpPath": "$DATABRICKS_HTTP_PATH"
+    "workspaceUrl": "adb-7405609173671370.10.azuredatabricks.net",
+    "httpPath": "/sql/1.0/warehouses/559747c78f71249c"
   }
 }
 EOF
