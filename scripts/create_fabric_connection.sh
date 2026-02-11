@@ -21,7 +21,7 @@ CLIENT_SECRET=$(az keyvault secret show --vault-name "$KEYVAULT_NAME" --name "$S
 INNER_CREDS=$(jq -n --arg user "$CLIENT_ID" --arg pass "$CLIENT_SECRET" \
   '{"credentialData": [{"name": "username", "value": $user}, {"name": "password", "value": $pass}]}')
 
-PAYLOAD=$(jq -n --arg name "$CONN_DISPLAY_NAME" --argjson creds "$INNER_CREDS" \
+PAYLOAD=$(jq -n --arg name "$TARGET_SPN_DISPLAY_NAME" --argjson creds "$INNER_CREDS" \
   '{
     displayName: $name,
     connectivityType: "Shareable",
