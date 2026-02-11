@@ -41,7 +41,7 @@ PAYLOAD=$(jq -n --arg name "$TARGET_SPN_DISPLAY_NAME" --argjson creds "$INNER_CR
   }' | jq -c)
 
 # === 4. Execute Create (POST) ===
-log "Creating new connection: $CONN_DISPLAY_NAME"
+log "Creating new connection: $TARGET_SPN_DISPLAY_NAME"
 RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://api.fabric.microsoft.com/v1/connections" \
     -H "Authorization: Bearer $FABRIC_TOKEN" \
     -H "Content-Type: application/json" \
