@@ -29,8 +29,8 @@ INNER_CREDS=$(jq -n --arg user "$CLIENT_ID" --arg pass "$CLIENT_SECRET" \
 
 PAYLOAD=$(jq -n \
   --arg name "$TARGET_SPN_DISPLAY_NAME" \
-  --arg host "$DB_HOST" \
-  --arg path "$DB_HTTP_PATH" \
+  --arg host "adb-7405609173671370.10.azuredatabricks.net" \
+  --arg path "/sql/1.0/warehouses/559747c78f71249c" \
   --argjson creds "$INNER_CREDS" \
   '{
     connectivityType: "ShareableCloud",
