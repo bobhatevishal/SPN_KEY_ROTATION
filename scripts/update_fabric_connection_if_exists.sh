@@ -1,7 +1,9 @@
 #!/bin/bash
 set -e
 
+# -------------------------------------------------------
 # Load runtime variables
+# -------------------------------------------------------
 if [ -f db_env.sh ]; then
   . ./db_env.sh
 else
@@ -9,9 +11,20 @@ else
   exit 1
 fi
 
+# -------------------------------------------------------
+# Validate required Fabric variables
+# -------------------------------------------------------
+if [ -z "$FABRIC_CLIENT_ID" ] || [ -z "$FABRIC_CLIENT_SECRET" ] || [ -z "$FABRIC_TENANT_ID" ]; then
+  echo "ERROR: Fabric Service Principal variables are missing."
+  echo "Ensure FABRIC_CLIENT_ID, FABRIC_CLIENT_SECRET, FABRIC_TENANT_ID are set in Jenkins."
+  exit 1
+fi
+
+# -------------------------------------------------------
 # Ensure Fabric CLI exists
+# -------------------------------------------------------
 if [ ! -f "fabricenv/bin/fab" ]; then
-  echo "Fabric CLI not found. Installing..."
+  echo "Fabric CLI not found. Installing locally..."
   python3 -m venv fabricenv
   . fabricenv/bin/activate
   pip install ms-fabric-cli==1.4.0 >/dev/null 2>&1
@@ -19,29 +32,41 @@ fi
 
 FAB="fabricenv/bin/fab"
 
-echo "Logging into Fabric..."
+# -------------------------------------------------------
+# Non-Interactive Service Principal Login
+# -------------------------------------------------------
+echo "Logging into Microsoft Fabric (Service Principal mode)..."
 
 $FAB auth login \
-  -u "$FABRIC_CLIENT_ID" \
-  -p "$FABRIC_CLIENT_SECRET" \
-  --tenant "$FABRIC_TENANT_ID"
+  --service-principal \
+  --client-id "$FABRIC_CLIENT_ID" \
+  --client-secret "$FABRIC_CLIENT_SECRET" \
+  --tenant "$FABRIC_TENANT_ID" \
+  --no-browser >/dev/null
 
-echo "$FABRIC_CLIENT_ID"
-echo "$FABRIC_TENANT_ID"
+echo "Fabric login successful."
 
-echo "Fabric login done."
+# Optional debug check
+$FAB whoami || {
+  echo "ERROR: Fabric authentication failed."
+  exit 1
+}
 
 echo "-------------------------------------------------------"
 echo "Updating Fabric Connection for SPN: $TARGET_SPN_DISPLAY_NAME"
 echo "-------------------------------------------------------"
 
-# 1️⃣ Derive Connection Name
+# -------------------------------------------------------
+# Derive Connection Name
+# -------------------------------------------------------
 CLEAN_NAME=$(echo "$TARGET_SPN_DISPLAY_NAME" | tr ' ' '-')
 TARGET_CONNECTION_DISPLAY_NAME="db-$CLEAN_NAME"
 
 echo "Target Fabric Connection Name: $TARGET_CONNECTION_DISPLAY_NAME"
 
-# 2️⃣ Fetch Connection ID
+# -------------------------------------------------------
+# Fetch Connection ID
+# -------------------------------------------------------
 RESPONSE=$($FAB api connections -A fabric)
 
 CONNECTION_ID=$(echo "$RESPONSE" | jq -r --arg name "$TARGET_CONNECTION_DISPLAY_NAME" \
@@ -53,15 +78,24 @@ if [ -z "$CONNECTION_ID" ]; then
   exit 0
 fi
 
-echo "Fabric Connection ID found: $CONNECTION_ID"
+echo "Fabric Connection ID: $CONNECTION_ID"
 
-# 3️⃣ Validate Secret
+# -------------------------------------------------------
+# Validate Secret
+# -------------------------------------------------------
 if [ -z "$FINAL_OAUTH_SECRET" ] || [ "$FINAL_OAUTH_SECRET" == "null" ]; then
   echo "ERROR: FINAL_OAUTH_SECRET is empty. Aborting."
   exit 1
 fi
 
-# 4️⃣ Generate Update Payload
+if [ -z "$TARGET_APPLICATION_ID" ]; then
+  echo "ERROR: TARGET_APPLICATION_ID missing."
+  exit 1
+fi
+
+# -------------------------------------------------------
+# Generate Update Payload
+# -------------------------------------------------------
 cat <<EOF > update.json
 {
   "connectivityType": "VirtualNetworkGateway",
@@ -78,13 +112,16 @@ cat <<EOF > update.json
 }
 EOF
 
-echo "Updating connection credentials..."
+echo "Updating Fabric connection credentials..."
 
-# 5️⃣ Patch
+# -------------------------------------------------------
+# PATCH Connection
+# -------------------------------------------------------
 $FAB api connections/$CONNECTION_ID \
   -A fabric \
   -X patch \
-  -i update.json >/dev/null 2>&1
+  -i update.json >/dev/null
 
+echo "-------------------------------------------------------"
 echo "Fabric connection credentials rotated successfully."
 echo "-------------------------------------------------------"
