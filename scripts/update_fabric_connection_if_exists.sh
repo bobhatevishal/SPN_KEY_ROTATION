@@ -9,6 +9,15 @@ else
   exit 1
 fi
 
+
+FAB="$WORKSPACE/fabricenv/bin/fab"
+ 
+if [ ! -f "$FAB" ]; then
+  echo "ERROR: Fabric CLI not found at $FAB"
+  exit 1
+fi
+
+
 echo "-------------------------------------------------------"
 echo "Updating Fabric Connection for SPN: $TARGET_SPN_DISPLAY_NAME"
 echo "-------------------------------------------------------"
@@ -20,7 +29,12 @@ TARGET_CONNECTION_DISPLAY_NAME="db-$CLEAN_NAME"
 echo "Target Fabric Connection Name: $TARGET_CONNECTION_DISPLAY_NAME"
 
 # 2️⃣ Fetch Connection ID
-CONNECTION_ID=$(fab api connections -A fabric | jq -r --arg name "$TARGET_CONNECTION_DISPLAY_NAME" '.text.value[] | select(.displayName==$name) | .id')
+FAB="$WORKSPACE/fabricenv/bin/fab"
+ 
+CONNECTION_ID=$($FAB api connections -A fabric | jq -r --arg name "$TARGET_CONNECTION_DISPLAY_NAME" '.text.value[] | select(.displayName==$name) | .id')
+#fab api connections -A fabric | jq -r '.text.value[] | select(.displayName=="db-vnet-automation-spn11") | .id'
+
+#CONNECTION_ID=$(fab api connections -A fabric | jq -r --arg name "$TARGET_CONNECTION_DISPLAY_NAME" '.text.value[] | select(.displayName==$name) | .id')
 
 #CONNECTION_ID=$($FAB api connections -A fabric | jq -r '.text.value[]? | select(.displayName=="'"${$TARGET_CONNECTION_DISPLAY_NAME}"'") | .id')
 
