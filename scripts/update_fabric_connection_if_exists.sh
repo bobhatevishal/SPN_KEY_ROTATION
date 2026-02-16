@@ -17,7 +17,6 @@ fi
 
 # -------------------------------------------------------
 # 2️⃣ Validate Required Azure SPN Variables
-# (Using same SPN as Jenkins environment)
 # -------------------------------------------------------
 if [ -z "$AZURE_CLIENT_ID" ] || \
    [ -z "$AZURE_CLIENT_SECRET" ] || \
@@ -27,7 +26,25 @@ if [ -z "$AZURE_CLIENT_ID" ] || \
 fi
 
 # -------------------------------------------------------
-# 3️⃣ Install Fabric CLI (if not exists)
+# 3️⃣ Validate Required Variables
+# -------------------------------------------------------
+if [ -z "$TARGET_SPN_DISPLAY_NAME" ]; then
+  echo "ERROR: TARGET_SPN_DISPLAY_NAME missing."
+  exit 3
+fi
+
+if [ -z "$FINAL_OAUTH_SECRET" ]; then
+  echo "ERROR: FINAL_OAUTH_SECRET missing."
+  exit 4
+fi
+
+# -------------------------------------------------------
+# 4️⃣ 🔐 HARDCODED GATEWAY ID
+# -------------------------------------------------------
+GATEWAY_ID="34377033-6f6f-433a-9a66-3095e996f65c"
+
+# -------------------------------------------------------
+# 5️⃣ Install Fabric CLI (if not exists)
 # -------------------------------------------------------
 if [ ! -d "fabricenv" ]; then
   echo "Installing Fabric CLI..."
@@ -39,17 +56,17 @@ fi
 FAB="fabricenv/bin/fab"
 
 # -------------------------------------------------------
-# 4️⃣ Set Fabric Auth (Non-Interactive Safe for Jenkins)
+# 6️⃣ Configure Fabric Auth (Service Principal)
 # -------------------------------------------------------
 export FABRIC_AUTH_TYPE="service-principal"
 export FABRIC_CLIENT_ID="$AZURE_CLIENT_ID"
 export FABRIC_CLIENT_SECRET="$AZURE_CLIENT_SECRET"
 export FABRIC_TENANT_ID="$AZURE_TENANT_ID"
 
-echo "Fabric authentication configured using Jenkins SPN."
+echo "Fabric authentication configured."
 
 # -------------------------------------------------------
-# 5️⃣ Derive Connection Name
+# 7️⃣ Derive Connection Name
 # -------------------------------------------------------
 CLEAN_NAME=$(echo "$TARGET_SPN_DISPLAY_NAME" | tr ' ' '-')
 TARGET_CONNECTION_DISPLAY_NAME="db-$CLEAN_NAME"
@@ -57,7 +74,7 @@ TARGET_CONNECTION_DISPLAY_NAME="db-$CLEAN_NAME"
 echo "Target Fabric Connection: $TARGET_CONNECTION_DISPLAY_NAME"
 
 # -------------------------------------------------------
-# 6️⃣ Fetch Connection ID
+# 8️⃣ Fetch Connection ID
 # -------------------------------------------------------
 RESPONSE=$($FAB api connections -A fabric)
 
@@ -73,19 +90,12 @@ fi
 echo "Fabric Connection ID: $CONNECTION_ID"
 
 # -------------------------------------------------------
-# 7️⃣ Validate Secret
-# -------------------------------------------------------
-if [ -z "$FINAL_OAUTH_SECRET" ] || [ "$FINAL_OAUTH_SECRET" == "null" ]; then
-  echo "ERROR: FINAL_OAUTH_SECRET is empty."
-  exit 3
-fi
-
-# -------------------------------------------------------
-# 8️⃣ Generate Update Payload
+# 9️⃣ Generate Update Payload
 # -------------------------------------------------------
 cat <<EOF > update.json
 {
   "connectivityType": "VirtualNetworkGateway",
+  "gatewayId": "$GATEWAY_ID",
   "displayName": "$TARGET_CONNECTION_DISPLAY_NAME",
   "privacyLevel": "Private",
   "credentialDetails": {
@@ -102,12 +112,12 @@ EOF
 echo "Patching Fabric connection..."
 
 # -------------------------------------------------------
-# 9️⃣ Update Connection
+# 🔟 Update Connection
 # -------------------------------------------------------
 $FAB api connections/$CONNECTION_ID \
   -A fabric \
   -X patch \
-  -i update.json >/dev/null
+  -i update.json
 
 echo "Fabric connection rotated successfully."
 echo "-------------------------------------------------------"
