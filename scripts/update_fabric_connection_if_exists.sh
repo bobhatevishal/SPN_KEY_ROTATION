@@ -10,12 +10,21 @@ else
 fi
 
 
-FAB="$WORKSPACE/fabricenv/bin/fab"
- 
-if [ ! -f "$FAB" ]; then
-  echo "ERROR: Fabric CLI not found at $FAB"
-  exit 1
+if [ ! -f "$WORKSPACE/fabricenv/bin/fab" ]; then
+
+  echo "Fabric CLI not found. Installing..."
+
+  python3 -m venv fabricenv
+
+  . fabricenv/bin/activate
+
+  pip install ms-fabric-cli==1.4.0 >/dev/null 2>&1
+
 fi
+ 
+FAB="$WORKSPACE/fabricenv/bin/fab"
+
+ 
 
 
 echo "-------------------------------------------------------"
