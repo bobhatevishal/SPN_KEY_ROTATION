@@ -47,10 +47,7 @@ FAB="fabricenv/bin/fab"
 
 # Login using Service Principal (IMPORTANT – do not rely only on env vars)
 echo "Logging into Fabric..."
-$FAB auth login \
-  -u "$AZURE_CLIENT_ID" \
-  -p "$AZURE_CLIENT_SECRET" \
-  --tenant "$AZURE_TENANT_ID"
+$FAB auth login  -u "$AZURE_CLIENT_ID" -p "$AZURE_CLIENT_SECRET" --tenant "$AZURE_TENANT_ID"
 
 echo "Fabric login successful."
 
