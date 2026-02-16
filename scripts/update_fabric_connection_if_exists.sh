@@ -2,7 +2,7 @@
 set -e
 
 echo "-------------------------------------------------------"
-echo "Starting Fabric Connection Update Script"
+echo "Starting Fabric Connection Sync"
 echo "-------------------------------------------------------"
 
 # -------------------------------------------------------
@@ -16,44 +16,37 @@ else
 fi
 
 # -------------------------------------------------------
-# 2️⃣ Ensure jq is installed
+# 2️⃣ Validate Required Azure SPN Variables
+# (Using same SPN as Jenkins environment)
 # -------------------------------------------------------
-if ! command -v jq >/dev/null 2>&1; then
-  echo "ERROR: jq is not installed."
-  exit 1
+if [ -z "$AZURE_CLIENT_ID" ] || \
+   [ -z "$AZURE_CLIENT_SECRET" ] || \
+   [ -z "$AZURE_TENANT_ID" ]; then
+  echo "ERROR: Azure SPN environment variables missing."
+  exit 2
 fi
 
 # -------------------------------------------------------
-# 3️⃣ Ensure Fabric CLI exists
+# 3️⃣ Install Fabric CLI (if not exists)
 # -------------------------------------------------------
-if [ ! -f "fabricenv/bin/fab" ]; then
-  echo "Fabric CLI not found. Installing..."
-
+if [ ! -d "fabricenv" ]; then
+  echo "Installing Fabric CLI..."
   python3 -m venv fabricenv
   . fabricenv/bin/activate
-  pipx install ms-fabric-cli==1.4.0 >/dev/null 2>&1
+  pip install ms-fabric-cli==1.4.0 >/dev/null 2>&1
 fi
 
 FAB="fabricenv/bin/fab"
 
 # -------------------------------------------------------
-# 4️⃣ Login to Fabric (NON-INTERACTIVE)
+# 4️⃣ Set Fabric Auth (Non-Interactive Safe for Jenkins)
 # -------------------------------------------------------
-echo "Logging into Microsoft Fabric..."
+export FABRIC_AUTH_TYPE="service-principal"
+export FABRIC_CLIENT_ID="$AZURE_CLIENT_ID"
+export FABRIC_CLIENT_SECRET="$AZURE_CLIENT_SECRET"
+export FABRIC_TENANT_ID="$AZURE_TENANT_ID"
 
-$FAB auth login \
-  -u "ccb59224-dc2f-4bf4-94d2-ae6eb1765ae9" \
-  -p "vm78Q~xWdUW4S6h4sRN9KDVZzGk.5CeQQ-gv8cvc" \
-  --tenant "6fbff720-d89b-4675-b188-48491f24b460" \
-  --no-browser >/dev/null 2>&1
-
-if [ $? -ne 0 ]; then
-  echo "ERROR: Fabric login failed."
-  exit 1
-fi
-
-echo "Fabric login successful."
-echo "-------------------------------------------------------"
+echo "Fabric authentication configured using Jenkins SPN."
 
 # -------------------------------------------------------
 # 5️⃣ Derive Connection Name
@@ -61,31 +54,30 @@ echo "-------------------------------------------------------"
 CLEAN_NAME=$(echo "$TARGET_SPN_DISPLAY_NAME" | tr ' ' '-')
 TARGET_CONNECTION_DISPLAY_NAME="db-$CLEAN_NAME"
 
-echo "Updating Fabric Connection for SPN: $TARGET_SPN_DISPLAY_NAME"
-echo "Target Fabric Connection Name: $TARGET_CONNECTION_DISPLAY_NAME"
+echo "Target Fabric Connection: $TARGET_CONNECTION_DISPLAY_NAME"
 
 # -------------------------------------------------------
 # 6️⃣ Fetch Connection ID
 # -------------------------------------------------------
 RESPONSE=$($FAB api connections -A fabric)
 
-CONNECTION_ID=$(echo "$RESPONSE" | jq -r --arg name "$TARGET_CONNECTION_DISPLAY_NAME" \
+CONNECTION_ID=$(echo "$RESPONSE" | jq -r \
+  --arg name "$TARGET_CONNECTION_DISPLAY_NAME" \
   '.text.value[]? | select(.displayName==$name) | .id')
 
 if [ -z "$CONNECTION_ID" ] || [ "$CONNECTION_ID" == "null" ]; then
-  echo "No Fabric connection found for $TARGET_CONNECTION_DISPLAY_NAME"
-  echo "Skipping Fabric update."
+  echo "No Fabric connection found. Skipping update."
   exit 0
 fi
 
-echo "Fabric Connection ID found: $CONNECTION_ID"
+echo "Fabric Connection ID: $CONNECTION_ID"
 
 # -------------------------------------------------------
 # 7️⃣ Validate Secret
 # -------------------------------------------------------
 if [ -z "$FINAL_OAUTH_SECRET" ] || [ "$FINAL_OAUTH_SECRET" == "null" ]; then
-  echo "ERROR: FINAL_OAUTH_SECRET is empty. Aborting."
-  exit 1
+  echo "ERROR: FINAL_OAUTH_SECRET is empty."
+  exit 3
 fi
 
 # -------------------------------------------------------
@@ -107,30 +99,18 @@ cat <<EOF > update.json
 }
 EOF
 
-echo "Payload generated."
+echo "Patching Fabric connection..."
 
 # -------------------------------------------------------
-# 9️⃣ Patch Connection
+# 9️⃣ Update Connection
 # -------------------------------------------------------
-echo "Updating connection credentials..."
-
 $FAB api connections/$CONNECTION_ID \
   -A fabric \
   -X patch \
-  -i update.json >/dev/null 2>&1
+  -i update.json >/dev/null
 
-if [ $? -ne 0 ]; then
-  echo "ERROR: Failed to update Fabric connection."
-  exit 1
-fi
-
-echo "Fabric connection credentials rotated successfully."
+echo "Fabric connection rotated successfully."
 echo "-------------------------------------------------------"
 
-# -------------------------------------------------------
-# 🔟 Cleanup
-# -------------------------------------------------------
 rm -f update.json
-
-echo "Script completed successfully."
-echo "-------------------------------------------------------"
+exit 0
