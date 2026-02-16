@@ -31,7 +31,7 @@ if [ ! -f "fabricenv/bin/fab" ]; then
 
   python3 -m venv fabricenv
   . fabricenv/bin/activate
-  pip install ms-fabric-cli==1.4.0 >/dev/null 2>&1
+  pipx install ms-fabric-cli==1.4.0 >/dev/null 2>&1
 fi
 
 FAB="fabricenv/bin/fab"
