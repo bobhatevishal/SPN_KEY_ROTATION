@@ -65,6 +65,11 @@ export FABRIC_TENANT_ID="$AZURE_TENANT_ID"
 
 echo "Fabric authentication configured."
 
+echo "Length of CLIENT_ID: ${#AZURE_CLIENT_ID}"
+echo "Length of CLIENT_SECRET: ${#AZURE_CLIENT_SECRET}"
+echo "Length of TENANT_ID: ${#AZURE_TENANT_ID}"
+
+
 # -------------------------------------------------------
 # 7️⃣ Derive Connection Name
 # -------------------------------------------------------
