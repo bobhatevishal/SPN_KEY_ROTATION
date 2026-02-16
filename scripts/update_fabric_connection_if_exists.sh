@@ -14,7 +14,7 @@ if [ ! -f "fabricenv/bin/fab" ]; then
   echo "Fabric CLI not found. Installing..."
   python3 -m venv fabricenv
   . fabricenv/bin/activate
-  pip install ms-fabric-cli==1.4.0 >/dev/null 2>&
+  pip install ms-fabric-cli==1.4.0 >/dev/null 2>&1
 fi
 
 FAB="fabricenv/bin/fab"
@@ -24,10 +24,10 @@ echo "Logging into Fabric..."
 $FAB auth login \
   -u "$FABRIC_CLIENT_ID" \
   -p "$FABRIC_CLIENT_SECRET" \
-  --tenant "$FABRIC_TENANT_ID" 
+  --tenant "$FABRIC_TENANT_ID"
 
 echo "$FABRIC_CLIENT_ID"
-echo "$FABRIC_TENANT_ID" 
+echo "$FABRIC_TENANT_ID"
 
 echo "Fabric login done."
 
@@ -53,7 +53,7 @@ if [ -z "$CONNECTION_ID" ]; then
   exit 0
 fi
 
-echo "Fabric Connection ID found."
+echo "Fabric Connection ID found: $CONNECTION_ID"
 
 # 3️⃣ Validate Secret
 if [ -z "$FINAL_OAUTH_SECRET" ] || [ "$FINAL_OAUTH_SECRET" == "null" ]; then
@@ -88,5 +88,3 @@ $FAB api connections/$CONNECTION_ID \
 
 echo "Fabric connection credentials rotated successfully."
 echo "-------------------------------------------------------"
-
- 
