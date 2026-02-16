@@ -1,132 +1,105 @@
 #!/bin/bash
 set -e
- 
+
 echo "-------------------------------------------------------"
-echo "Starting Fabric Connection Sync"
+echo "Starting Fabric Connection Secret Update"
 echo "-------------------------------------------------------"
- 
-# -------------------------------------------------------
-# 1️⃣ Load runtime variables
-# -------------------------------------------------------
+
+# Load runtime variables
 if [ -f db_env.sh ]; then
   . ./db_env.sh
 else
   echo "ERROR: db_env.sh not found."
   exit 1
 fi
- 
-# -------------------------------------------------------
-# 2️⃣ Validate Required Azure SPN Variables
-# -------------------------------------------------------
-if [ -z "$AZURE_CLIENT_ID" ] || \
-   [ -z "$AZURE_CLIENT_SECRET" ] || \
-   [ -z "$AZURE_TENANT_ID" ]; then
-  echo "ERROR: Azure SPN environment variables missing."
+
+# Validate required values
+if [ -z "$TARGET_APPLICATION_ID" ]; then
+  echo "ERROR: TARGET_APPLICATION_ID missing."
   exit 2
 fi
- 
-# -------------------------------------------------------
-# 3️⃣ Validate Required Variables
-# -------------------------------------------------------
-if [ -z "$TARGET_SPN_DISPLAY_NAME" ]; then
-  echo "ERROR: TARGET_SPN_DISPLAY_NAME missing."
-  exit 3
-fi
- 
+
 if [ -z "$FINAL_OAUTH_SECRET" ]; then
   echo "ERROR: FINAL_OAUTH_SECRET missing."
+  exit 3
+fi
+
+if [ -z "$TARGET_SPN_DISPLAY_NAME" ]; then
+  echo "ERROR: TARGET_SPN_DISPLAY_NAME missing."
   exit 4
 fi
- 
-# -------------------------------------------------------
-# 4️⃣ HARDCODED GATEWAY ID
-# -------------------------------------------------------
+
+# Hardcoded Gateway ID (your confirmed working one)
 GATEWAY_ID="34377033-6f6f-433a-9a66-3095e996f65c"
- 
-# -------------------------------------------------------
-# 5️⃣ Ensure Fabric CLI Exists
-# -------------------------------------------------------
+
+# Install Fabric CLI if not present
 if [ ! -d "fabricenv" ]; then
   echo "Installing Fabric CLI..."
   python3 -m venv fabricenv
   . fabricenv/bin/activate
-  pip install ms-fabric-cli==1.4.0
+  pip install ms-fabric-cli==1.4.0 >/dev/null 2>&1
 fi
- 
+
 FAB="fabricenv/bin/fab"
- 
-if [ ! -f "$FAB" ]; then
-  echo "ERROR: Fabric CLI not found."
-  exit 5
-fi
- 
-# -------------------------------------------------------
-# 6️⃣ Configure Fabric Auth (Service Principal)
-# -------------------------------------------------------
-export FABRIC_AUTH_TYPE="service-principal"
-export FABRIC_CLIENT_ID="$AZURE_CLIENT_ID"
-export FABRIC_CLIENT_SECRET="$AZURE_CLIENT_SECRET"
-export FABRIC_TENANT_ID="$AZURE_TENANT_ID"
- 
-echo "Fabric authentication configured."
- 
-# -------------------------------------------------------
-# 7️⃣ Derive Connection Name
-# -------------------------------------------------------
+
+# Activate virtual environment
+. fabricenv/bin/activate
+
+# Login using Service Principal (IMPORTANT – do not rely only on env vars)
+echo "Logging into Fabric..."
+$FAB auth login \
+  -u "$AZURE_CLIENT_ID" \
+  -p "$AZURE_CLIENT_SECRET" \
+  --tenant "$AZURE_TENANT_ID"
+
+echo "Fabric login successful."
+
+# Build connection name
 CLEAN_NAME=$(echo "$TARGET_SPN_DISPLAY_NAME" | tr ' ' '-')
 TARGET_CONNECTION_DISPLAY_NAME="db-$CLEAN_NAME"
- 
-echo "Target Fabric Connection: $TARGET_CONNECTION_DISPLAY_NAME"
- 
-# -------------------------------------------------------
-# 8️⃣ Fetch Connection ID
-# -------------------------------------------------------
+
+echo "Target connection: $TARGET_CONNECTION_DISPLAY_NAME"
+
+# Fetch connection ID
 RESPONSE=$($FAB api connections -A fabric)
- 
+
 CONNECTION_ID=$(echo "$RESPONSE" | jq -r \
   --arg name "$TARGET_CONNECTION_DISPLAY_NAME" \
   '.text.value[]? | select(.displayName==$name) | .id')
- 
+
 if [ -z "$CONNECTION_ID" ] || [ "$CONNECTION_ID" == "null" ]; then
   echo "No Fabric connection found. Skipping update."
   exit 0
 fi
- 
-echo "Fabric Connection ID: $CONNECTION_ID"
- 
-# -------------------------------------------------------
-# 9️⃣ Generate OAuth2 Update Payload (Correct for SPN)
-# -------------------------------------------------------
+
+echo "Connection ID: $CONNECTION_ID"
+
+# Create update payload
 cat <<EOF > update.json
 {
   "connectivityType": "VirtualNetworkGateway",
-  "gatewayId": "$GATEWAY_ID",
   "displayName": "$TARGET_CONNECTION_DISPLAY_NAME",
   "privacyLevel": "Private",
   "credentialDetails": {
     "singleSignOnType": "None",
     "credentials": {
-      "credentialType": "OAuth2",
-      "clientId": "$AZURE_CLIENT_ID",
-      "clientSecret": "$FINAL_OAUTH_SECRET",
-      "tenantId": "$AZURE_TENANT_ID"
+      "credentialType": "Basic",
+      "username": "$TARGET_APPLICATION_ID",
+      "password": "$FINAL_OAUTH_SECRET"
     }
   }
 }
 EOF
- 
-echo "Patching Fabric connection..."
- 
-# -------------------------------------------------------
-# 🔟 Update Connection
-# -------------------------------------------------------
+
+echo "Updating Fabric connection secret..."
+
 $FAB api connections/$CONNECTION_ID \
   -A fabric \
   -X patch \
   -i update.json
- 
-echo "Fabric connection rotated successfully."
+
+echo "Secret rotation completed successfully."
 echo "-------------------------------------------------------"
- 
+
 rm -f update.json
 exit 0
