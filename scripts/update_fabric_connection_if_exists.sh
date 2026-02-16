@@ -25,6 +25,17 @@ fi
 FAB="$WORKSPACE/fabricenv/bin/fab"
 
  
+echo "Logging into Fabric..."
+ 
+fab auth login \
+
+  -u "ccb59224-dc2f-4bf4-94d2-ae6eb1765ae9" \
+
+  -p "vm78Q~xWdUW4S6h4sRN9KDVZzGk.5CeQQ-gv8cvc" \
+
+  --tenant "6fbff720-d89b-4675-b188-48491f24b460" >/dev/null 2>&1
+ 
+echo "Fabric login done."
 
 
 echo "-------------------------------------------------------"
@@ -37,10 +48,13 @@ TARGET_CONNECTION_DISPLAY_NAME="db-$CLEAN_NAME"
 
 echo "Target Fabric Connection Name: $TARGET_CONNECTION_DISPLAY_NAME"
 
+
 # 2️⃣ Fetch Connection ID
-FAB="$WORKSPACE/fabricenv/bin/fab"
- 
-CONNECTION_ID=$($FAB api connections -A fabric | jq -r --arg name "$TARGET_CONNECTION_DISPLAY_NAME" '.text.value[] | select(.displayName==$name) | .id')
+#FAB="$WORKSPACE/fabricenv/bin/fab"
+RESPONSE=$(fab api connections -A fabric 2>/dev/null)
+
+CONNECTION_ID=$(echo "$RESPONSE" | jq -r --arg name "$TARGET_CONNECTION_DISPLAY_NAME" '.text.value[]? | select(.displayName==$name) | .id')
+#CONNECTION_ID=$($FAB api connections -A fabric | jq -r --arg name "$TARGET_CONNECTION_DISPLAY_NAME" '.text.value[] | select(.displayName==$name) | .id')
 #fab api connections -A fabric | jq -r '.text.value[] | select(.displayName=="db-vnet-automation-spn11") | .id'
 
 #CONNECTION_ID=$(fab api connections -A fabric | jq -r --arg name "$TARGET_CONNECTION_DISPLAY_NAME" '.text.value[] | select(.displayName==$name) | .id')
