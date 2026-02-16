@@ -14,7 +14,7 @@ if [ ! -f "fabricenv/bin/fab" ]; then
   echo "Fabric CLI not found. Installing..."
   python3 -m venv fabricenv
   . fabricenv/bin/activate
-  pip install ms-fabric-cli==1.4.0 >/dev/null 2>&1
+  pip install ms-fabric-cli==1.4.0 >/dev/null 2>&
 fi
 
 FAB="fabricenv/bin/fab"
@@ -24,7 +24,10 @@ echo "Logging into Fabric..."
 $FAB auth login \
   -u "$FABRIC_CLIENT_ID" \
   -p "$FABRIC_CLIENT_SECRET" \
-  --tenant "$FABRIC_TENANT_ID" >/dev/null 2>&1
+  --tenant "$FABRIC_TENANT_ID" 
+
+echo "$FABRIC_CLIENT_ID"
+echo "$FABRIC_TENANT_ID" 
 
 echo "Fabric login done."
 
