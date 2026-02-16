@@ -42,6 +42,7 @@ fi
 
 FAB="fabricenv/bin/fab"
 
+$FAB config set encryption_fallback_enabled true
 # Activate virtual environment
 . fabricenv/bin/activate
 
