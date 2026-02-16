@@ -76,8 +76,36 @@ echo "Target Fabric Connection: $TARGET_CONNECTION_DISPLAY_NAME"
 # -------------------------------------------------------
 # 8️⃣ Fetch Connection ID
 # -------------------------------------------------------
-RESPONSE=$($FAB api connections -A fabric)
+# RESPONSE=$($FAB api connections -A fabric)
 
+# CONNECTION_ID=$(echo "$RESPONSE" | jq -r \
+#   --arg name "$TARGET_CONNECTION_DISPLAY_NAME" \
+#   '.text.value[]? | select(.displayName==$name) | .id')
+
+# if [ -z "$CONNECTION_ID" ] || [ "$CONNECTION_ID" == "null" ]; then
+#   echo "No Fabric connection found. Skipping update."
+#   exit 0
+# fi
+
+# echo "Fabric Connection ID: $CONNECTION_ID"
+
+echo "Fetching Fabric connections..."
+
+set +e
+RESPONSE=$($FAB api connections -A fabric 2>&1)
+FAB_EXIT_CODE=$?
+set -e
+
+echo "Fabric CLI Exit Code: $FAB_EXIT_CODE"
+echo "Fabric CLI Raw Response:"
+echo "$RESPONSE"
+
+if [ $FAB_EXIT_CODE -ne 0 ]; then
+  echo "ERROR: Failed to fetch Fabric connections."
+  exit 6
+fi
+
+# Extract connection ID after successful response
 CONNECTION_ID=$(echo "$RESPONSE" | jq -r \
   --arg name "$TARGET_CONNECTION_DISPLAY_NAME" \
   '.text.value[]? | select(.displayName==$name) | .id')
@@ -88,6 +116,7 @@ if [ -z "$CONNECTION_ID" ] || [ "$CONNECTION_ID" == "null" ]; then
 fi
 
 echo "Fabric Connection ID: $CONNECTION_ID"
+
 
 # -------------------------------------------------------
 # 9️⃣ Generate Update Payload
