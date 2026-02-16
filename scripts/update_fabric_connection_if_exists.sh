@@ -1,127 +1,67 @@
 #!/bin/bash
 set -e
+
+# Load runtime variables
 if [ -f db_env.sh ]; then
-    . ./db_env.sh
+  . ./db_env.sh
 else
-    echo "ERROR: db_env.sh not found. Cannot proceed without credentials."
-    exit 1
-fi
-echo "=================================================="
-echo " Microsoft Fabric Connection Credential Sync"
-echo " Match by SPN Name | CLI Only | Key Vault Trusted"
-echo "=================================================="
-
-# Load env variables generated from previous pipeline steps
-if [ ! -f db_env.sh ]; then
-  echo "❌ db_env.sh not found. Aborting."
+  echo "ERROR: db_env.sh not found."
   exit 1
 fi
 
-source db_env.sh
+echo "-------------------------------------------------------"
+echo "Updating Fabric Connection for SPN: $TARGET_SPN_DISPLAY_NAME"
+echo "-------------------------------------------------------"
 
-echo "Loaded environment from db_env.sh"
+# 1️⃣ Derive Connection Display Name
+CLEAN_NAME=$(echo "$TARGET_SPN_DISPLAY_NAME" | tr ' ' '-')
+TARGET_CONNECTION_DISPLAY_NAME="db-vnet-$CLEAN_NAME"
 
-# Validate required variables
-REQUIRED_VARS=(
-  TARGET_SPN_DISPLAY_NAME
-  FINAL_OAUTH_SECRET
-  AZURE_CLIENT_ID
-  AZURE_CLIENT_SECRET
-  AZURE_TENANT_ID
-  FABRIC_WORKSPACE_ID
-  # DATABRICKS_HOST
-  # DATABRICKS_HTTP_PATH
-)
+echo "Target Fabric Connection Name: $TARGET_CONNECTION_DISPLAY_NAME"
 
-for VAR in "${REQUIRED_VARS[@]}"; do
-  if [ -z "${!VAR}" ]; then
-    echo "❌ Missing required variable: $VAR"
-    exit 1
-  fi
-done
+# 2️⃣ Fetch Connection ID
+CONNECTION_ID=$(fab api connections -A fabric | \
+  jq -r --arg name "$TARGET_CONNECTION_DISPLAY_NAME" \
+  '.text.value[] | select(.displayName==$name) | .id')
 
-echo "----------------------------------------------"
-echo " SPN Name              : $TARGET_SPN_DISPLAY_NAME"
-echo " Tenant ID             : $AZURE_TENANT_ID"
-echo " Fabric Workspace ID   : $FABRIC_WORKSPACE_ID"
-echo " Key Vault Secret ID   : ${KEYVAULT_SECRET_ID:-NOT_SET}"
-echo "----------------------------------------------"
+if [ -z "$CONNECTION_ID" ]; then
+  echo "No Fabric connection found for $TARGET_CONNECTION_DISPLAY_NAME"
+  echo "Skipping Fabric update."
+  exit 0
+fi
 
-# Confirm secret presence
+echo "Fabric Connection ID: $CONNECTION_ID"
+
+# 3️⃣ Validate Secret Again (Safety)
 if [ -z "$FINAL_OAUTH_SECRET" ] || [ "$FINAL_OAUTH_SECRET" == "null" ]; then
-  echo "❌ FINAL_OAUTH_SECRET is NULL or empty. Aborting."
+  echo "ERROR: FINAL_OAUTH_SECRET is empty. Aborting Fabric update."
   exit 1
 fi
 
-echo "✅ Secret validated from Key Vault runtime cache"
-
-# Login to Microsoft Fabric using SPN
-echo "Logging into Microsoft Fabric using SPN..."
-fab auth login \
-  --service-principal \
-  --client-id "$AZURE_CLIENT_ID" \
-  --client-secret "$AZURE_CLIENT_SECRET" \
-  --tenant-id "$AZURE_TENANT_ID"
-
-# Select Fabric workspace
-echo "Selecting Fabric Workspace..."
-fab workspace select "$FABRIC_WORKSPACE_ID"
-
-# Fetch Fabric connections
-echo "Fetching Fabric Connections from Workspace..."
-CONNECTION_LIST=$(fab connection list --output json || echo "[]")
-
-if [ -z "$CONNECTION_LIST" ] || [ "$CONNECTION_LIST" == "[]" ]; then
-  echo "⚠️ No Fabric connections found. Skipping update."
-  exit 0
-fi
-
-# Match Fabric connection name to SPN name
-MATCH_NAME="$TARGET_SPN_DISPLAY_NAME"
-
-echo "Searching for Fabric connection matching SPN name: $MATCH_NAME"
-
-MATCH_FOUND=$(echo "$CONNECTION_LIST" | jq -r --arg NAME "$MATCH_NAME" '.[] | select(.displayName==$NAME) | .displayName')
-
-if [ -z "$MATCH_FOUND" ]; then
-  echo "⚠️ No Fabric connection found matching '$MATCH_NAME'. Skipping update."
-  exit 0
-fi
-
-echo " Found matching Fabric connection: $MATCH_FOUND"
-
-# Build updated connection payload
-echo "Preparing updated Fabric connection artifact..."
-
-cat <<EOF > fabric_connection.json
+# 4️⃣ Generate Update Payload
+cat <<EOF > update.json
 {
-  "type": "Connection",
-  "displayName": "$MATCH_FOUND",
-  "connectionType": "AzureDatabricks",
-  "connectivityType": "Shareable",
+  "connectivityType": "VirtualNetworkGateway",
+  "displayName": "$TARGET_CONNECTION_DISPLAY_NAME",
+  "privacyLevel": "Private",
   "credentialDetails": {
-    "credentialType": "ServicePrincipal",
-    "clientId": "$AZURE_CLIENT_ID",
-    "clientSecret": "$FINAL_OAUTH_SECRET",
-    "tenantId": "$AZURE_TENANT_ID"
-  },
-  "connectionDetails": {
-    "workspaceUrl": "adb-7405609173671370.10.azuredatabricks.net",
-    "httpPath": "/sql/1.0/warehouses/559747c78f71249c"
+    "singleSignOnType": "None",
+    "credentials": {
+      "credentialType": "Basic",
+      "username": "$TARGET_APPLICATION_ID",
+      "password": "$FINAL_OAUTH_SECRET"
+    }
   }
 }
 EOF
 
-# Deploy update via Fabric CLI (overwrite existing)
-echo "Deploying updated Fabric connection (overwrite mode)..."
-fabric item deploy \
-  --path fabric_connection.json \
-  --workspace "$FABRIC_WORKSPACE_ID"
+echo "Update payload generated."
 
-echo "--------------------------------------------------"
-echo "✅ Fabric connection updated successfully"
-echo " Connection Name : $MATCH_FOUND"
-echo " Secret Source   : Azure Key Vault"
-echo " Key Vault ID    : ${KEYVAULT_SECRET_ID:-UNKNOWN}"
-echo "--------------------------------------------------"
- 
+# 5️⃣ Patch the Connection
+fab api connections/$CONNECTION_ID \
+  -A fabric \
+  -X patch \
+  -i update.json
+
+echo "Fabric connection updated successfully."
+echo "-------------------------------------------------------"
