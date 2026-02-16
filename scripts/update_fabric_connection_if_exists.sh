@@ -15,7 +15,7 @@ echo "-------------------------------------------------------"
 
 # 1️⃣ Derive Connection Display Name
 CLEAN_NAME=$(echo "$TARGET_SPN_DISPLAY_NAME" | tr ' ' '-')
-TARGET_CONNECTION_DISPLAY_NAME="db-vnet-$CLEAN_NAME"
+TARGET_CONNECTION_DISPLAY_NAME="db-$CLEAN_NAME"
 
 echo "Target Fabric Connection Name: $TARGET_CONNECTION_DISPLAY_NAME"
 
