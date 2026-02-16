@@ -20,9 +20,7 @@ TARGET_CONNECTION_DISPLAY_NAME="db-$CLEAN_NAME"
 echo "Target Fabric Connection Name: $TARGET_CONNECTION_DISPLAY_NAME"
 
 # 2️⃣ Fetch Connection ID
-CONNECTION_ID=$(fab api connections -A fabric | \
-  jq -r --arg name "$TARGET_CONNECTION_DISPLAY_NAME" \
-  '.text.value[] | select(.displayName==$name) | .id')
+CONNECTION_ID=$(fab api connections -A fabric | jq -r --arg name "$TARGET_CONNECTION_DISPLAY_NAME" '.text.value[] | select(.displayName==$name) | .id')
 
 if [ -z "$CONNECTION_ID" ]; then
   echo "No Fabric connection found for $TARGET_CONNECTION_DISPLAY_NAME"
