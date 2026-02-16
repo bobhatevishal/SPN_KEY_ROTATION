@@ -22,12 +22,12 @@ if [ ! -f "$WORKSPACE/fabricenv/bin/fab" ]; then
 
 fi
  
-FAB="$WORKSPACE/fabricenv/bin/fab"
+$FAB="$WORKSPACE/fabricenv/bin/fab"
 
  
 echo "Logging into Fabric..."
  
-fab auth login \
+$FAB auth login \
 
   -u "ccb59224-dc2f-4bf4-94d2-ae6eb1765ae9" \
 
@@ -51,7 +51,7 @@ echo "Target Fabric Connection Name: $TARGET_CONNECTION_DISPLAY_NAME"
 
 # 2️⃣ Fetch Connection ID
 #FAB="$WORKSPACE/fabricenv/bin/fab"
-RESPONSE=$(fab api connections -A fabric 2>/dev/null)
+RESPONSE=$($FAB api connections -A fabric 2>/dev/null)
 
 CONNECTION_ID=$(echo "$RESPONSE" | jq -r --arg name "$TARGET_CONNECTION_DISPLAY_NAME" '.text.value[]? | select(.displayName==$name) | .id')
 #CONNECTION_ID=$($FAB api connections -A fabric | jq -r --arg name "$TARGET_CONNECTION_DISPLAY_NAME" '.text.value[] | select(.displayName==$name) | .id')
